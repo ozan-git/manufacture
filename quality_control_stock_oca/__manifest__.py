@@ -19,6 +19,7 @@
         "views/qc_trigger_view.xml",
     ],
     "post_init_hook": "post_init_hook",
+    "external_dependencies": {"python": ["openpyxl"]},
     "installable": True,
     "auto_install": True,
 }
