@@ -86,13 +86,12 @@ class QcInspection(models.Model):
         return res
 
     def _inspection_exists_per_lot(self, picking, trigger, product, lot_id):
-        field_trigger = "trigger_id" if "trigger_id" in self._fields else "trigger"
         domain = [
             ("picking_id", "=", picking.id),
-            (field_trigger, "=", trigger.id),
+            ("trigger_id", "=", trigger.id),
             ("product_id", "=", product.id),
+            ("lot_id", "=", lot_id),
         ]
-        domain.append(("lot_id", "=", lot_id))
         return bool(self.search_count(domain))
 
     def _make_inspection(self, object_ref, trigger_line):
