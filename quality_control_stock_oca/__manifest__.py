@@ -17,6 +17,7 @@
         "views/stock_picking_view.xml",
         "views/stock_production_lot_view.xml",
         "views/qc_trigger_view.xml",
+        "views/qc_test_wizard_view.xml",
     ],
     "post_init_hook": "post_init_hook",
     "external_dependencies": {"python": ["openpyxl"]},

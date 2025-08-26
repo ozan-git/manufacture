@@ -1,0 +1,65 @@
+<odoo>
+    <record id="view_qc_test_export_wizard" model="ir.ui.view">
+        <field name="name">qc.test.export.wizard.form</field>
+        <field name="model">qc.test.export.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Export QC Tests">
+                <group>
+                    <field name="file_data" filename="file_name" readonly="1" />
+                    <field name="file_name" invisible="1" />
+                </group>
+                <footer>
+                    <button
+                        name="action_export"
+                        string="Download"
+                        type="object"
+                        class="btn-primary"
+                    />
+                    <button string="Close" class="btn-secondary" special="cancel" />
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_qc_test_export_wizard" model="ir.actions.act_window">
+        <field name="name">Export QC Tests</field>
+        <field name="res_model">qc.test.export.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_qc_test_export_wizard" />
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="quality_control.model_qc_test" />
+        <field name="binding_view_types">list,form</field>
+    </record>
+
+    <record id="view_qc_test_import_wizard" model="ir.ui.view">
+        <field name="name">qc.test.import.wizard.form</field>
+        <field name="model">qc.test.import.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Import QC Tests">
+                <group>
+                    <field name="file_data" filename="file_name" />
+                    <field name="file_name" invisible="1" />
+                </group>
+                <footer>
+                    <button
+                        name="action_import"
+                        string="Import"
+                        type="object"
+                        class="btn-primary"
+                    />
+                    <button string="Cancel" class="btn-secondary" special="cancel" />
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_qc_test_import_wizard" model="ir.actions.act_window">
+        <field name="name">Import QC Tests</field>
+        <field name="res_model">qc.test.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_qc_test_import_wizard" />
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="quality_control.model_qc_test" />
+        <field name="binding_view_types">list,form</field>
+    </record>
+</odoo>
