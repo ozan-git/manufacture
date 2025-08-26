@@ -6,6 +6,14 @@ from odoo import api, fields, models
 from odoo.fields import first
 
 
+def _done_qty(ml):
+    return getattr(ml, "qty_done", getattr(ml, "quantity", 0.0))
+
+
+def _planned_qty(ml):
+    return getattr(ml, "product_uom_qty", 0.0)
+
+
 class QcInspection(models.Model):
     _inherit = "qc.inspection"
 
@@ -76,6 +84,67 @@ class QcInspection(models.Model):
         if object_ref and object_ref._name == "stock.move":
             res["qty"] = object_ref.product_uom_qty
         return res
+
+    def _inspection_exists_per_lot(self, picking, product, lot, trigger_line):
+        test_rec = getattr(
+            trigger_line, "test_id", getattr(trigger_line, "test", False)
+        )
+
+        domain = [
+            ("picking_id", "=", picking.id),
+            ("product_id", "=", product.id),
+            ("lot_id", "=", lot.id),
+        ]
+        if test_rec:
+            domain.append(("test", "=", getattr(test_rec, "id", test_rec)))
+
+        return bool(self.search_count(domain))
+
+    def _make_inspection(self, object_ref, trigger_line):
+        trigger = trigger_line.trigger
+        if (
+            trigger.per_lot
+            and object_ref._name == "stock.move"
+            and object_ref.product_id.tracking in ("serial", "lot")
+        ):
+            product = object_ref.product_id
+            picking = object_ref.picking_id
+            groups = {}
+            for ml in picking.move_line_ids:
+                if ml.product_id != product:
+                    continue
+                done_qty = _done_qty(ml)
+                planned_qty = _planned_qty(ml)
+                if not ml.lot_id or not (done_qty or planned_qty):
+                    continue
+                lot = ml.lot_id
+                qty = done_qty or planned_qty
+                groups.setdefault(lot.id, {"lot": lot, "qty": 0})
+                groups[lot.id]["qty"] += qty
+            inspections = self.browse()
+            for data in groups.values():
+                if self._inspection_exists_per_lot(
+                    picking,
+                    product,
+                    data["lot"],
+                    trigger_line,
+                ):
+                    continue
+                inspection = super()._make_inspection(picking, trigger_line)
+                test_rec = getattr(
+                    trigger_line, "test_id", getattr(trigger_line, "test", False)
+                )
+                vals = {
+                    "product_id": product.id,
+                    "qty": data["qty"],
+                    "lot_id": data["lot"].id,
+                }
+                if test_rec:
+                    vals["test"] = getattr(test_rec, "id", test_rec)
+                inspection.write(vals)
+                inspections |= inspection
+            return inspections
+        return super()._make_inspection(object_ref, trigger_line)
 
 
 class QcInspectionLine(models.Model):

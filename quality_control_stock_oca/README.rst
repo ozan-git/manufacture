@@ -31,7 +31,9 @@ Quality control - Stock (OCA)
 This module defines triggers that creates inspections when stock moves
 are done.
 
-It also adds some shortcuts on picking and lots to these inspections.
+It also adds some shortcuts on picking and lots to these inspections. It
+supports generating one inspection per lot or serial number when the
+trigger is configured accordingly.
 
 **Table of contents**
 
@@ -41,7 +43,7 @@ It also adds some shortcuts on picking and lots to these inspections.
 Known issues / Roadmap
 ======================
 
--  Put trigger in all languages.
+- Put trigger in all languages.
 
 Bug Tracker
 ===========
@@ -66,19 +68,19 @@ Authors
 Contributors
 ------------
 
--  Oihane Crucelaegui <oihanecrucelaegi@avanzosc.es>
--  Simone Rubino <simone.rubino@agilebg.com>
--  Andrii Skrypka <andrijskrypa@ukr.net>
--  Ignacio José Alés <ignacio.ales@guadaltech.es>
--  Pimolnat Suntian <pimolnats@ecosoft.co.th>
--  `Tecnativa <https://www.tecnativa.com>`__:
+- Oihane Crucelaegui <oihanecrucelaegi@avanzosc.es>
+- Simone Rubino <simone.rubino@agilebg.com>
+- Andrii Skrypka <andrijskrypa@ukr.net>
+- Ignacio José Alés <ignacio.ales@guadaltech.es>
+- Pimolnat Suntian <pimolnats@ecosoft.co.th>
+- `Tecnativa <https://www.tecnativa.com>`__:
 
-   -  Pedro M. Baeza
-   -  Carlos Roca
+  - Pedro M. Baeza
+  - Carlos Roca
 
--  `APSL-Nagarro <https://www.apsl.tech>`__:
+- `APSL-Nagarro <https://www.apsl.tech>`__:
 
-   -  Antoni Marroig <amarroig@apsl.net>
+  - Antoni Marroig <amarroig@apsl.net>
 
 Maintainers
 -----------

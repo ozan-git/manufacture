@@ -317,3 +317,141 @@ class TestQualityControlStockOca(TestQualityControlOcaBase):
         self.inspection1.onchange_object_id()
         self.assertEqual(self.inspection1.lot_id, self.lot)
         self.assertEqual(self.inspection1.product_id, self.lot.product_id)
+
+    def _create_serial_picking(self, serials, per_lot=False, before=False):
+        self.trigger.per_lot = per_lot
+        if before:
+            self.trigger.timing = "before"
+        else:
+            self.trigger.timing = "after"
+        self.product.tracking = "serial"
+        lots = [
+            self.env["stock.lot"].create({"name": sn, "product_id": self.product.id})
+            for sn in serials
+        ]
+        for lot in lots:
+            self.env["stock.quant"].create(
+                {
+                    "product_id": self.product.id,
+                    "location_id": self.location.id,
+                    "quantity": 1,
+                    "lot_id": lot.id,
+                }
+            )
+        picking_form = Form(
+            self.env["stock.picking"]
+            .with_user(self.user)
+            .with_context(default_picking_type_id=self.picking_type.id)
+        )
+        picking_form.partner_id = self.partner1
+        with picking_form.move_ids_without_package.new() as move_form:
+            move_form.product_id = self.product
+            move_form.product_uom_qty = len(serials)
+        picking = picking_form.save()
+        picking.action_confirm()
+        move = picking.move_ids[0]
+        move.move_line_ids.unlink()
+        for lot in lots:
+            self.env["stock.move.line"].create(
+                {
+                    "move_id": move.id,
+                    "product_id": self.product.id,
+                    "qty_done": 1,
+                    "location_id": self.location.id,
+                    "location_dest_id": self.location_dest.id,
+                    "lot_id": lot.id,
+                }
+            )
+        self.product.qc_triggers = [
+            (0, 0, {"trigger": self.trigger.id, "test": self.test.id})
+        ]
+        picking._action_done()
+        return picking
+
+    def test_serial_single_inspection(self):
+        picking = self._create_serial_picking(["sn1", "sn2", "sn3"], per_lot=False)
+        self.assertEqual(picking.created_inspections, 1)
+
+    def test_serial_after_per_lot(self):
+        picking = self._create_serial_picking(["sn1", "sn2", "sn3"], per_lot=True)
+        self.assertEqual(picking.created_inspections, 3)
+
+    def test_serial_before_per_lot(self):
+        picking = self._create_serial_picking(
+            ["sn1", "sn2", "sn3"], per_lot=True, before=True
+        )
+        self.assertEqual(picking.created_inspections, 3)
+
+    def test_lot_per_lot(self):
+        self.trigger.per_lot = True
+        self.product.tracking = "lot"
+        lots = [
+            self.env["stock.lot"].create(
+                {"name": f"lot{i}", "product_id": self.product.id}
+            )
+            for i in range(1, 3)
+        ]
+        for lot in lots:
+            self.env["stock.quant"].create(
+                {
+                    "product_id": self.product.id,
+                    "location_id": self.location.id,
+                    "quantity": 1,
+                    "lot_id": lot.id,
+                }
+            )
+        picking_form = Form(
+            self.env["stock.picking"]
+            .with_user(self.user)
+            .with_context(default_picking_type_id=self.picking_type.id)
+        )
+        picking_form.partner_id = self.partner1
+        with picking_form.move_ids_without_package.new() as move_form:
+            move_form.product_id = self.product
+            move_form.product_uom_qty = 2
+        picking = picking_form.save()
+        picking.action_confirm()
+        move = picking.move_ids[0]
+        move.move_line_ids.unlink()
+        for lot in lots:
+            self.env["stock.move.line"].create(
+                {
+                    "move_id": move.id,
+                    "product_id": self.product.id,
+                    "qty_done": 1,
+                    "location_id": self.location.id,
+                    "location_dest_id": self.location_dest.id,
+                    "lot_id": lot.id,
+                }
+            )
+        self.product.qc_triggers = [
+            (0, 0, {"trigger": self.trigger.id, "test": self.test.id})
+        ]
+        picking._action_done()
+        self.assertEqual(picking.created_inspections, 2)
+
+    def test_no_tracking_per_lot(self):
+        self.trigger.per_lot = True
+        self.product.tracking = "none"
+        picking_form = Form(
+            self.env["stock.picking"]
+            .with_user(self.user)
+            .with_context(default_picking_type_id=self.picking_type.id)
+        )
+        picking_form.partner_id = self.partner1
+        with picking_form.move_ids_without_package.new() as move_form:
+            move_form.product_id = self.product
+            move_form.product_uom_qty = 3
+        picking = picking_form.save()
+        picking.action_confirm()
+        self.product.qc_triggers = [
+            (0, 0, {"trigger": self.trigger.id, "test": self.test.id})
+        ]
+        picking._action_done()
+        self.assertEqual(picking.created_inspections, 1)
+
+    def test_duplicate_inspection_prevention(self):
+        picking = self._create_serial_picking(["sn1"], per_lot=True)
+        initial = picking.created_inspections
+        picking._action_done()
+        self.assertEqual(picking.created_inspections, initial)
