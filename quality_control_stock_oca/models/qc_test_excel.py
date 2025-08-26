@@ -40,10 +40,39 @@ class QcTest(models.Model):
             ws_tests.append([getattr(test, field) for field in fields])
 
         ws_questions = wb.create_sheet("questions")
-        ws_questions.append(["test_name", "question"])
+        ws_questions.append(
+            [
+                "test_name",
+                "name",
+                "type",
+                "min",
+                "max",
+                "uom_id/id",
+                "sequence",
+                "notes",
+                "qualitative_value_ids/id",
+            ]
+        )
         for test in self:
             for question in getattr(test, "question_ids", []):
-                ws_questions.append([test.name, getattr(question, "question", "")])
+                qual_ids = (
+                    getattr(question, "qualitative_value_ids", [])
+                    and question.qualitative_value_ids.ids
+                    or []
+                )
+                ws_questions.append(
+                    [
+                        test.name,
+                        getattr(question, "name", ""),
+                        getattr(question, "type", ""),
+                        getattr(question, "min", ""),
+                        getattr(question, "max", ""),
+                        getattr(question, "uom_id", False) and question.uom_id.id or "",
+                        getattr(question, "sequence", ""),
+                        getattr(question, "notes", ""),
+                        ",".join(map(str, qual_ids)),
+                    ]
+                )
 
         wb.save(file_path)
 
@@ -72,9 +101,25 @@ class QcTest(models.Model):
                 for row in q_rows[1:]:
                     q_vals = dict(zip(q_headers, row, strict=False))
                     test_name = q_vals.get("test_name")
-                    question = q_vals.get("question")
-                    if test_name and question and test_name in tests:
-                        tests[test_name].write(
-                            {"question_ids": [(0, 0, {"question": question})]}
-                        )
+                    if test_name and test_name in tests:
+                        vals = {
+                            "name": q_vals.get("name"),
+                            "type": q_vals.get("type"),
+                            "min": q_vals.get("min"),
+                            "max": q_vals.get("max"),
+                            "sequence": q_vals.get("sequence"),
+                            "notes": q_vals.get("notes"),
+                        }
+                        uom = q_vals.get("uom_id/id")
+                        if uom:
+                            try:
+                                vals["uom_id"] = int(uom)
+                            except (ValueError, TypeError):
+                                vals["uom_id"] = False
+                        qual = q_vals.get("qualitative_value_ids/id")
+                        if qual:
+                            ids = [int(x) for x in str(qual).split(",") if x]
+                            vals["qualitative_value_ids"] = [(6, 0, ids)]
+                        if vals.get("name"):
+                            tests[test_name].write({"question_ids": [(0, 0, vals)]})
         return self
