@@ -3,17 +3,16 @@
         <field name="name">Test Questions</field>
         <field name="res_model">qc.test.question</field>
         <field name="view_mode">tree,form</field>
-        <field name="domain">[("test_id", "=", active_id)]</field>
-        <field name="context">{"default_test_id": active_id}</field>
+        <field name="domain">[("test", "=", active_id)]</field>
+        <field name="context">{"default_test": active_id}</field>
     </record>
 
     <record id="qc_test_view_form_manage_questions" model="ir.ui.view">
         <field name="name">qc.test.form.manage.questions</field>
         <field name="model">qc.test</field>
-        <!-- base form view lives in quality_control_oca -->
-        <field name="inherit_id" ref="quality_control_oca.qc_test_view_form" />
+        <field name="inherit_id" ref="quality_control_oca.qc_test_form_view" />
         <field name="arch" type="xml">
-            <xpath expr="//field[@name='question_ids']" position="before">
+            <xpath expr="//field[@name='test_lines']" position="before">
                 <button
                     name="%(qc_test_questions_action)d"
                     type="action"

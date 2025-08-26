@@ -45,28 +45,26 @@ class QcTest(models.Model):
                 "test_name",
                 "name",
                 "type",
-                "min",
-                "max",
+                "min_value",
+                "max_value",
                 "uom_id/id",
                 "sequence",
                 "notes",
-                "qualitative_value_ids/id",
+                "ql_values/id",
             ]
         )
         for test in self:
-            for question in getattr(test, "question_ids", []):
+            for question in getattr(test, "test_lines", []):
                 qual_ids = (
-                    getattr(question, "qualitative_value_ids", [])
-                    and question.qualitative_value_ids.ids
-                    or []
+                    getattr(question, "ql_values", []) and question.ql_values.ids or []
                 )
                 ws_questions.append(
                     [
                         test.name,
                         getattr(question, "name", ""),
                         getattr(question, "type", ""),
-                        getattr(question, "min", ""),
-                        getattr(question, "max", ""),
+                        getattr(question, "min_value", ""),
+                        getattr(question, "max_value", ""),
                         getattr(question, "uom_id", False) and question.uom_id.id or "",
                         getattr(question, "sequence", ""),
                         getattr(question, "notes", ""),
@@ -105,8 +103,8 @@ class QcTest(models.Model):
                         vals = {
                             "name": q_vals.get("name"),
                             "type": q_vals.get("type"),
-                            "min": q_vals.get("min"),
-                            "max": q_vals.get("max"),
+                            "min_value": q_vals.get("min_value"),
+                            "max_value": q_vals.get("max_value"),
                             "sequence": q_vals.get("sequence"),
                             "notes": q_vals.get("notes"),
                         }
@@ -116,10 +114,10 @@ class QcTest(models.Model):
                                 vals["uom_id"] = int(uom)
                             except (ValueError, TypeError):
                                 vals["uom_id"] = False
-                        qual = q_vals.get("qualitative_value_ids/id")
+                        qual = q_vals.get("ql_values/id")
                         if qual:
                             ids = [int(x) for x in str(qual).split(",") if x]
-                            vals["qualitative_value_ids"] = [(6, 0, ids)]
+                            vals["ql_values"] = [(6, 0, ids)]
                         if vals.get("name"):
-                            tests[test_name].write({"question_ids": [(0, 0, vals)]})
+                            tests[test_name].write({"test_lines": [(0, 0, vals)]})
         return self

@@ -11,11 +11,11 @@ class TestQcTestExcel(TransactionCase):
         test = Test.create({"name": "Excel demo"})
         Question.create(
             {
-                "test_id": test.id,
+                "test": test.id,
                 "name": "Is it good?",
                 "type": "qualitative",
-                "min": 1,
-                "max": 2,
+                "min_value": 1,
+                "max_value": 2,
                 "uom_id": uom.id,
                 "sequence": 5,
                 "notes": "note",
@@ -28,11 +28,11 @@ class TestQcTestExcel(TransactionCase):
             Test.import_from_excel(tmp.name)
         imported = Test.search([("name", "=", "Excel demo")])
         self.assertTrue(imported)
-        question = imported.question_ids
+        question = imported.test_lines
         self.assertEqual(question.mapped("name"), ["Is it good?"])
         self.assertEqual(question.type, "qualitative")
-        self.assertEqual(question.min, 1)
-        self.assertEqual(question.max, 2)
+        self.assertEqual(question.min_value, 1)
+        self.assertEqual(question.max_value, 2)
         self.assertEqual(question.uom_id, uom)
         self.assertEqual(question.sequence, 5)
         self.assertEqual(question.notes, "note")
@@ -41,7 +41,7 @@ class TestQcTestExcel(TransactionCase):
         Test = self.env["qc.test"]
         Question = self.env["qc.test.question"]
         test = Test.create({"name": "Wizard demo"})
-        Question.create({"test_id": test.id, "name": "Ok?"})
+        Question.create({"test": test.id, "name": "Ok?"})
         wiz_export = (
             self.env["qc.test.export.wizard"]
             .with_context(active_ids=test.ids)
@@ -55,4 +55,4 @@ class TestQcTestExcel(TransactionCase):
         wiz_import.action_import()
         imported = Test.search([("name", "=", "Wizard demo")])
         self.assertTrue(imported)
-        self.assertEqual(imported.question_ids.mapped("name"), ["Ok?"])
+        self.assertEqual(imported.test_lines.mapped("name"), ["Ok?"])
