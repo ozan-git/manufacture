@@ -85,13 +85,19 @@ class QcInspection(models.Model):
             res["qty"] = object_ref.product_uom_qty
         return res
 
-    def _inspection_exists_per_lot(self, picking, trigger, product, lot_id):
+    def _inspection_exists_per_lot(self, picking, product, lot, trigger_line):
+        test_rec = getattr(
+            trigger_line, "test_id", getattr(trigger_line, "test", False)
+        )
+
         domain = [
             ("picking_id", "=", picking.id),
-            ("trigger_id", "=", trigger.id),
             ("product_id", "=", product.id),
-            ("lot_id", "=", lot_id),
+            ("lot_id", "=", lot.id),
         ]
+        if test_rec:
+            domain.append(("test", "=", getattr(test_rec, "id", test_rec)))
+
         return bool(self.search_count(domain))
 
     def _make_inspection(self, object_ref, trigger_line):
@@ -113,25 +119,29 @@ class QcInspection(models.Model):
                     continue
                 lot = ml.lot_id
                 qty = done_qty or planned_qty
-                groups.setdefault(lot.id, {"lot_id": lot.id, "qty": 0})
+                groups.setdefault(lot.id, {"lot": lot, "qty": 0})
                 groups[lot.id]["qty"] += qty
             inspections = self.browse()
             for data in groups.values():
                 if self._inspection_exists_per_lot(
                     picking,
-                    trigger,
                     product,
-                    data["lot_id"],
+                    data["lot"],
+                    trigger_line,
                 ):
                     continue
                 inspection = super()._make_inspection(picking, trigger_line)
-                inspection.write(
-                    {
-                        "product_id": product.id,
-                        "qty": data["qty"],
-                        "lot_id": data["lot_id"],
-                    }
+                test_rec = getattr(
+                    trigger_line, "test_id", getattr(trigger_line, "test", False)
                 )
+                vals = {
+                    "product_id": product.id,
+                    "qty": data["qty"],
+                    "lot_id": data["lot"].id,
+                }
+                if test_rec:
+                    vals["test"] = getattr(test_rec, "id", test_rec)
+                inspection.write(vals)
                 inspections |= inspection
             return inspections
         return super()._make_inspection(object_ref, trigger_line)
