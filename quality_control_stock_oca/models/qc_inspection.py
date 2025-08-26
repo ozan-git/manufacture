@@ -6,6 +6,14 @@ from odoo import api, fields, models
 from odoo.fields import first
 
 
+def _done_qty(ml):
+    return getattr(ml, "qty_done", getattr(ml, "quantity", 0.0))
+
+
+def _planned_qty(ml):
+    return getattr(ml, "product_uom_qty", 0.0)
+
+
 class QcInspection(models.Model):
     _inherit = "qc.inspection"
 
@@ -97,15 +105,17 @@ class QcInspection(models.Model):
             product = object_ref.product_id
             picking = object_ref.picking_id
             groups = {}
-            for ml in picking.move_line_ids.filtered(
-                lambda line: line.product_id == product
-                and (line.qty_done or line.product_uom_qty)
-            ):
-                lot = ml.lot_id
-                if not lot:
+            for ml in picking.move_line_ids:
+                if ml.product_id != product:
                     continue
+                done_qty = _done_qty(ml)
+                planned_qty = _planned_qty(ml)
+                if not ml.lot_id or not (done_qty or planned_qty):
+                    continue
+                lot = ml.lot_id
+                qty = done_qty or planned_qty
                 groups.setdefault(lot.id, {"lot_id": lot.id, "qty": 0})
-                groups[lot.id]["qty"] += ml.qty_done or ml.product_uom_qty
+                groups[lot.id]["qty"] += qty
             inspections = self.browse()
             for data in groups.values():
                 if self._inspection_exists_per_lot(
