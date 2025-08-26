@@ -86,11 +86,6 @@ msgid "Inspection per lot/serial"
 msgstr ""
 
 #. module: quality_control_stock_oca
-#: model:ir.model.fields,field_description:quality_control_stock_oca.field_qc_inspection__lot_name
-msgid "Lot Name"
-msgstr ""
-
-#. module: quality_control_stock_oca
 #: model:ir.model,name:quality_control_stock_oca.model_qc_inspection
 msgid "Quality control inspection"
 msgstr ""

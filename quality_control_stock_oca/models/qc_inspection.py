@@ -15,7 +15,6 @@ class QcInspection(models.Model):
     lot_id = fields.Many2one(
         comodel_name="stock.lot", compute="_compute_lot", store=True
     )
-    lot_name = fields.Char()
 
     def object_selection_values(self):
         result = super().object_selection_values()
@@ -78,19 +77,14 @@ class QcInspection(models.Model):
             res["qty"] = object_ref.product_uom_qty
         return res
 
-    def _inspection_exists_per_lot(
-        self, picking, trigger, product, lot_id=False, lot_name=False
-    ):
+    def _inspection_exists_per_lot(self, picking, trigger, product, lot_id):
         field_trigger = "trigger_id" if "trigger_id" in self._fields else "trigger"
         domain = [
             ("picking_id", "=", picking.id),
             (field_trigger, "=", trigger.id),
             ("product_id", "=", product.id),
         ]
-        if lot_id:
-            domain.append(("lot_id", "=", lot_id))
-        else:
-            domain.append(("lot_name", "=", lot_name))
+        domain.append(("lot_id", "=", lot_id))
         return bool(self.search_count(domain))
 
     def _make_inspection(self, object_ref, trigger_line):
@@ -107,26 +101,18 @@ class QcInspection(models.Model):
                 lambda line: line.product_id == product
                 and (line.qty_done or line.product_uom_qty)
             ):
-                key = ml.lot_id.id or ml.lot_name
-                if not key:
+                lot = ml.lot_id
+                if not lot:
                     continue
-                groups.setdefault(
-                    key,
-                    {
-                        "lot_id": ml.lot_id.id,
-                        "lot_name": ml.lot_name,
-                        "qty": 0,
-                    },
-                )
-                groups[key]["qty"] += ml.qty_done or ml.product_uom_qty
+                groups.setdefault(lot.id, {"lot_id": lot.id, "qty": 0})
+                groups[lot.id]["qty"] += ml.qty_done or ml.product_uom_qty
             inspections = self.browse()
             for data in groups.values():
                 if self._inspection_exists_per_lot(
                     picking,
                     trigger,
                     product,
-                    lot_id=data["lot_id"],
-                    lot_name=data["lot_name"],
+                    data["lot_id"],
                 ):
                     continue
                 inspection = super()._make_inspection(picking, trigger_line)
@@ -135,7 +121,6 @@ class QcInspection(models.Model):
                         "product_id": product.id,
                         "qty": data["qty"],
                         "lot_id": data["lot_id"],
-                        "lot_name": data["lot_name"] if not data["lot_id"] else False,
                     }
                 )
                 inspections |= inspection
