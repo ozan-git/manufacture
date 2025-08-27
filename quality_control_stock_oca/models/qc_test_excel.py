@@ -22,6 +22,20 @@ class QcTest(models.Model):
 
         return ["name", "active"]
 
+    @api.model
+    def _question_field(self):
+        """Return the one2many field name that holds test questions.
+
+        Different quality-control modules have renamed this relation over
+        time.  The helper looks for a known field and falls back to
+        ``question_ids``.
+        """
+
+        for name in ("question_ids", "test_lines", "test_line_ids"):
+            if name in self._fields:
+                return name
+        return "question_ids"
+
     def export_to_excel(self, file_path):
         """Export tests and their questions to ``file_path``.
 
@@ -53,8 +67,9 @@ class QcTest(models.Model):
                 "qualitative_value_ids/id",
             ]
         )
+        q_field = self._question_field()
         for test in self:
-            for question in getattr(test, "question_ids", []):
+            for question in getattr(test, q_field, []):
                 qual_ids = (
                     question.qualitative_value_ids
                     and question.qualitative_value_ids.ids
@@ -93,7 +108,7 @@ class QcTest(models.Model):
             values = {k: v for k, v in values.items() if k}
             test = self.create(values)
             tests[test.name] = test
-
+        q_field = self._question_field()
         if "questions" in wb.sheetnames:
             q_rows = list(wb["questions"].iter_rows(values_only=True))
             if q_rows:
@@ -121,5 +136,5 @@ class QcTest(models.Model):
                             ids = [int(x) for x in str(qual).split(",") if x]
                             vals["qualitative_value_ids"] = [(6, 0, ids)]
                         if vals.get("name"):
-                            tests[test_name].write({"question_ids": [(0, 0, vals)]})
+                            tests[test_name].write({q_field: [(0, 0, vals)]})
         return self

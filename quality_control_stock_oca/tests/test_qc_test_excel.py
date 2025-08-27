@@ -28,7 +28,8 @@ class TestQcTestExcel(TransactionCase):
             Test.import_from_excel(tmp.name)
         imported = Test.search([("name", "=", "Excel demo")])
         self.assertTrue(imported)
-        question = imported.question_ids
+        q_field = Test._question_field()
+        question = getattr(imported, q_field)
         self.assertEqual(question.mapped("name"), ["Is it good?"])
         self.assertEqual(question.type, "qualitative")
         self.assertEqual(question.min_value, 1)
@@ -55,4 +56,5 @@ class TestQcTestExcel(TransactionCase):
         wiz_import.action_import()
         imported = Test.search([("name", "=", "Wizard demo")])
         self.assertTrue(imported)
-        self.assertEqual(imported.question_ids.mapped("name"), ["Ok?"])
+        q_field = Test._question_field()
+        self.assertEqual(getattr(imported, q_field).mapped("name"), ["Ok?"])
