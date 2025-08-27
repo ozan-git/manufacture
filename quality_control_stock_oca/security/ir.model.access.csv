@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_qc_test_export_wizard,qc.test.export.wizard,model_qc_test_export_wizard,base.group_user,1,1,1,0
+access_qc_test_import_wizard,qc.test.import.wizard,model_qc_test_import_wizard,base.group_user,1,1,1,0
