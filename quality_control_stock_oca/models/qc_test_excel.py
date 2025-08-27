@@ -46,6 +46,31 @@ class QcTest(models.Model):
                 return name
         return None
 
+    @api.model
+    def _answer_field(self):
+        """Return the one2many field that stores question answers, if any."""
+
+        Question = self.env["qc.test.question"]
+        for name, field in Question._fields.items():
+            if field.type == "one2many" and "answer" in name:
+                return name
+        return None
+
+    @api.model
+    def _answer_fields(self):
+        """Fields to export/import for answers."""
+
+        q_ans_field = self._answer_field()
+        if not q_ans_field:
+            return []
+        Question = self.env["qc.test.question"]
+        AnswerModel = self.env[Question._fields[q_ans_field].comodel_name]
+        fields = ["name"]
+        for extra in ("sequence", "notes"):
+            if extra in AnswerModel._fields:
+                fields.append(extra)
+        return fields
+
     def export_to_excel(self, file_path):
         """Export tests and their questions to ``file_path``.
 
@@ -79,6 +104,9 @@ class QcTest(models.Model):
             headers.append(f"{qual_field}/name")
         ws_questions.append(headers)
 
+        ans_field = self._answer_field()
+        ans_fields = self._answer_fields()
+
         q_field = self._question_field()
         for test in self:
             for question in getattr(test, q_field, []):
@@ -98,10 +126,24 @@ class QcTest(models.Model):
                     row.append(",".join(names))
                 ws_questions.append(row)
 
+        if ans_field and ans_fields:
+            ws_answers = wb.create_sheet("answers")
+            ws_answers.append(["test_name", "question_name", *ans_fields])
+            for test in self:
+                for question in getattr(test, q_field, []):
+                    for answer in getattr(question, ans_field, []):
+                        ws_answers.append(
+                            [
+                                test.name,
+                                getattr(question, "name", ""),
+                                *[getattr(answer, f, "") for f in ans_fields],
+                            ]
+                        )
+
         wb.save(file_path)
 
     @api.model
-    def import_from_excel(self, file_path):
+    def import_from_excel(self, file_path):  # noqa: C901
         """Create tests and questions from ``file_path``."""
 
         with open(file_path, "rb") as f:
@@ -121,6 +163,11 @@ class QcTest(models.Model):
         qual_field = self._qualitative_field()
         Question = self.env["qc.test.question"]
         qual_type = qual_field and Question._fields[qual_field].type or None
+        ans_field = self._answer_field()
+        ans_fields = self._answer_fields()
+        Answer = None
+        if ans_field:
+            Answer = self.env[Question._fields[ans_field].comodel_name]
         if "questions" in wb.sheetnames:
             q_rows = list(wb["questions"].iter_rows(values_only=True))
             if q_rows:
@@ -157,6 +204,38 @@ class QcTest(models.Model):
                                     vals[qual_field] = (
                                         records[:1].id if records else False
                                     )
+                        question = None
                         if vals.get("name"):
                             tests[test_name].write({q_field: [(0, 0, vals)]})
+                            question = getattr(tests[test_name], q_field)[-1]
+                        if question and ans_field and ans_fields:
+                            # store name for lookup when importing answers
+                            question._import_name = q_vals.get("name")
+        if ans_field and "answers" in wb.sheetnames:
+            a_rows = list(wb["answers"].iter_rows(values_only=True))
+            if a_rows:
+                a_headers = [str(h) for h in a_rows[0]]
+                rel_field = None
+                for fname, field in Answer._fields.items():
+                    if (
+                        field.type == "many2one"
+                        and field.comodel_name == Question._name
+                    ):
+                        rel_field = fname
+                        break
+                for row in a_rows[1:]:
+                    a_vals = dict(zip(a_headers, row, strict=False))
+                    test_name = a_vals.get("test_name")
+                    q_name = a_vals.get("question_name")
+                    if test_name in tests:
+                        test = tests[test_name]
+                        question = getattr(test, q_field).filtered(
+                            lambda q, q_name=q_name: getattr(q, "_import_name", q.name)
+                            == q_name
+                        )[:1]
+                        if question:
+                            vals = {f: a_vals.get(f) for f in ans_fields}
+                            if rel_field:
+                                vals[rel_field] = question.id
+                            Answer.create(vals)
         return self

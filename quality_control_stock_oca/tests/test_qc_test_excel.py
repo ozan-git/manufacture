@@ -9,7 +9,7 @@ class TestQcTestExcel(TransactionCase):
         Question = self.env["qc.test.question"]
         uom = self.env.ref("uom.product_uom_unit")
         test = Test.create({"name": "Excel demo"})
-        Question.create(
+        question = Question.create(
             {
                 "test_id": test.id,
                 "name": "Is it good?",
@@ -21,6 +21,19 @@ class TestQcTestExcel(TransactionCase):
                 "notes": "note",
             }
         )
+        ans_field = Test._answer_field()
+        if ans_field:
+            AnswerModel = Question._fields[ans_field].comodel_name
+            Answer = self.env[AnswerModel]
+            rel_field = None
+            for fname, field in Answer._fields.items():
+                if field.type == "many2one" and field.comodel_name == Question._name:
+                    rel_field = fname
+                    break
+            vals = {"name": "Yes"}
+            if rel_field:
+                vals[rel_field] = question.id
+            Answer.create(vals)
         with NamedTemporaryFile(suffix=".xlsx") as tmp:
             Test.export_to_excel(tmp.name)
             Test.search([]).unlink()
@@ -37,12 +50,27 @@ class TestQcTestExcel(TransactionCase):
         self.assertEqual(question.uom_id, uom)
         self.assertEqual(question.sequence, 5)
         self.assertEqual(question.notes, "note")
+        if ans_field:
+            self.assertEqual(getattr(question, ans_field).mapped("name"), ["Yes"])
 
     def test_export_import_wizards(self):
         Test = self.env["qc.test"]
         Question = self.env["qc.test.question"]
         test = Test.create({"name": "Wizard demo"})
-        Question.create({"test_id": test.id, "name": "Ok?"})
+        question = Question.create({"test_id": test.id, "name": "Ok?"})
+        ans_field = Test._answer_field()
+        if ans_field:
+            AnswerModel = Question._fields[ans_field].comodel_name
+            Answer = self.env[AnswerModel]
+            rel_field = None
+            for fname, field in Answer._fields.items():
+                if field.type == "many2one" and field.comodel_name == Question._name:
+                    rel_field = fname
+                    break
+            vals = {"name": "A"}
+            if rel_field:
+                vals[rel_field] = question.id
+            Answer.create(vals)
         wiz_export = (
             self.env["qc.test.export.wizard"]
             .with_context(active_ids=test.ids)
@@ -57,4 +85,7 @@ class TestQcTestExcel(TransactionCase):
         imported = Test.search([("name", "=", "Wizard demo")])
         self.assertTrue(imported)
         q_field = Test._question_field()
-        self.assertEqual(getattr(imported, q_field).mapped("name"), ["Ok?"])
+        question = getattr(imported, q_field)
+        self.assertEqual(question.mapped("name"), ["Ok?"])
+        if ans_field:
+            self.assertEqual(getattr(question, ans_field).mapped("name"), ["A"])
