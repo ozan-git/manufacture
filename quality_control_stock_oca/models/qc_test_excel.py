@@ -36,6 +36,22 @@ class QcTest(models.Model):
                 return name
         return "question_ids"
 
+    @api.model
+    def _qualitative_field(self):
+        """Return the field name used for qualitative values on questions.
+
+        Different quality-control modules expose the qualitative values of a
+        question under various field names or sometimes not at all.  This
+        helper looks for the most common options and returns ``None`` if no
+        such field exists.
+        """
+
+        Question = self.env["qc.test.question"]
+        for name in ("qualitative_value_ids", "qualitative_ids", "qualitative_id"):
+            if name in Question._fields:
+                return name
+        return None
+
     def export_to_excel(self, file_path):
         """Export tests and their questions to ``file_path``.
 
@@ -54,40 +70,44 @@ class QcTest(models.Model):
             ws_tests.append([getattr(test, field) for field in fields])
 
         ws_questions = wb.create_sheet("questions")
-        ws_questions.append(
-            [
-                "test_name",
-                "name",
-                "type",
-                "min_value",
-                "max_value",
-                "uom_id/id",
-                "sequence",
-                "notes",
-                "qualitative_value_ids/id",
-            ]
-        )
+        qual_field = self._qualitative_field()
+        headers = [
+            "test_name",
+            "name",
+            "type",
+            "min_value",
+            "max_value",
+            "uom_id/id",
+            "sequence",
+            "notes",
+        ]
+        if qual_field:
+            headers.append(f"{qual_field}/id")
+        ws_questions.append(headers)
+
         q_field = self._question_field()
+        Question = self.env["qc.test.question"]
+        qual_type = qual_field and Question._fields[qual_field].type or None
         for test in self:
             for question in getattr(test, q_field, []):
-                qual_ids = (
-                    question.qualitative_value_ids
-                    and question.qualitative_value_ids.ids
-                    or []
-                )
-                ws_questions.append(
-                    [
-                        test.name,
-                        getattr(question, "name", ""),
-                        getattr(question, "type", ""),
-                        getattr(question, "min_value", ""),
-                        getattr(question, "max_value", ""),
-                        getattr(question, "uom_id", False) and question.uom_id.id or "",
-                        getattr(question, "sequence", ""),
-                        getattr(question, "notes", ""),
-                        ",".join(map(str, qual_ids)),
-                    ]
-                )
+                row = [
+                    test.name,
+                    getattr(question, "name", ""),
+                    getattr(question, "type", ""),
+                    getattr(question, "min_value", ""),
+                    getattr(question, "max_value", ""),
+                    getattr(question, "uom_id", False) and question.uom_id.id or "",
+                    getattr(question, "sequence", ""),
+                    getattr(question, "notes", ""),
+                ]
+                if qual_field:
+                    value = getattr(question, qual_field)
+                    if qual_type == "many2many":
+                        ids = value.ids if value else []
+                        row.append(",".join(map(str, ids)))
+                    elif qual_type == "many2one":
+                        row.append(value.id if value else "")
+                ws_questions.append(row)
 
         wb.save(file_path)
 
@@ -109,6 +129,9 @@ class QcTest(models.Model):
             test = self.create(values)
             tests[test.name] = test
         q_field = self._question_field()
+        qual_field = self._qualitative_field()
+        Question = self.env["qc.test.question"]
+        qual_type = qual_field and Question._fields[qual_field].type or None
         if "questions" in wb.sheetnames:
             q_rows = list(wb["questions"].iter_rows(values_only=True))
             if q_rows:
@@ -131,10 +154,14 @@ class QcTest(models.Model):
                                 vals["uom_id"] = int(uom)
                             except (ValueError, TypeError):
                                 vals["uom_id"] = False
-                        qual = q_vals.get("qualitative_value_ids/id")
-                        if qual:
-                            ids = [int(x) for x in str(qual).split(",") if x]
-                            vals["qualitative_value_ids"] = [(6, 0, ids)]
+                        if qual_field:
+                            qual = q_vals.get(f"{qual_field}/id")
+                            if qual:
+                                ids = [int(x) for x in str(qual).split(",") if x]
+                                if qual_type == "many2many":
+                                    vals[qual_field] = [(6, 0, ids)]
+                                elif qual_type == "many2one":
+                                    vals[qual_field] = ids and ids[0] or False
                         if vals.get("name"):
                             tests[test_name].write({q_field: [(0, 0, vals)]})
         return self
