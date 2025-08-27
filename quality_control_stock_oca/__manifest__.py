@@ -13,12 +13,16 @@
     "website": "https://github.com/OCA/manufacture",
     "depends": ["quality_control_oca", "stock"],
     "data": [
+        "security/ir.model.access.csv",
         "views/qc_inspection_view.xml",
         "views/stock_picking_view.xml",
         "views/stock_production_lot_view.xml",
         "views/qc_trigger_view.xml",
+        "views/qc_test_manage_questions.xml",
+        "views/qc_test_wizard_view.xml",
     ],
     "post_init_hook": "post_init_hook",
+    "external_dependencies": {"python": ["openpyxl"]},
     "installable": True,
     "auto_install": True,
 }
