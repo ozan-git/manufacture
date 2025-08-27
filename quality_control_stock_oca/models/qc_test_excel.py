@@ -38,17 +38,11 @@ class QcTest(models.Model):
 
     @api.model
     def _qualitative_field(self):
-        """Return the field name used for qualitative values on questions.
-
-        Different quality-control modules expose the qualitative values of a
-        question under various field names or sometimes not at all.  This
-        helper looks for the most common options and returns ``None`` if no
-        such field exists.
-        """
+        """Return the field holding allowed values on questions if any."""
 
         Question = self.env["qc.test.question"]
-        for name in ("qualitative_value_ids", "qualitative_ids", "qualitative_id"):
-            if name in Question._fields:
+        for name, field in Question._fields.items():
+            if field.type in ("many2many", "many2one") and "value" in name:
                 return name
         return None
 
@@ -82,12 +76,10 @@ class QcTest(models.Model):
             "notes",
         ]
         if qual_field:
-            headers.append(f"{qual_field}/id")
+            headers.append(f"{qual_field}/name")
         ws_questions.append(headers)
 
         q_field = self._question_field()
-        Question = self.env["qc.test.question"]
-        qual_type = qual_field and Question._fields[qual_field].type or None
         for test in self:
             for question in getattr(test, q_field, []):
                 row = [
@@ -102,11 +94,8 @@ class QcTest(models.Model):
                 ]
                 if qual_field:
                     value = getattr(question, qual_field)
-                    if qual_type == "many2many":
-                        ids = value.ids if value else []
-                        row.append(",".join(map(str, ids)))
-                    elif qual_type == "many2one":
-                        row.append(value.id if value else "")
+                    names = value.mapped("name") if value else []
+                    row.append(",".join(names))
                 ws_questions.append(row)
 
         wb.save(file_path)
@@ -155,13 +144,19 @@ class QcTest(models.Model):
                             except (ValueError, TypeError):
                                 vals["uom_id"] = False
                         if qual_field:
-                            qual = q_vals.get(f"{qual_field}/id")
+                            qual = q_vals.get(f"{qual_field}/name")
                             if qual:
-                                ids = [int(x) for x in str(qual).split(",") if x]
+                                names = [x.strip() for x in str(qual).split(",") if x]
+                                rel_model = Question._fields[qual_field].comodel_name
+                                records = self.env[rel_model].search(
+                                    [("name", "in", names)]
+                                )
                                 if qual_type == "many2many":
-                                    vals[qual_field] = [(6, 0, ids)]
+                                    vals[qual_field] = [(6, 0, records.ids)]
                                 elif qual_type == "many2one":
-                                    vals[qual_field] = ids and ids[0] or False
+                                    vals[qual_field] = (
+                                        records[:1].id if records else False
+                                    )
                         if vals.get("name"):
                             tests[test_name].write({q_field: [(0, 0, vals)]})
         return self

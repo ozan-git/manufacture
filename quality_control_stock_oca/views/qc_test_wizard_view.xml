@@ -38,7 +38,7 @@
         <field
             name="code"
         ><![CDATA[
-action = env["ir.actions.actions"]._for_xml_id("quality_control_stock_oca.action_qc_test_export_wizard")
+action = env.ref("quality_control_stock_oca.action_qc_test_export_wizard").read()[0]
         ]]></field>
     </record>
 
@@ -81,7 +81,7 @@ action = env["ir.actions.actions"]._for_xml_id("quality_control_stock_oca.action
         <field
             name="code"
         ><![CDATA[
-action = env["ir.actions.actions"]._for_xml_id("quality_control_stock_oca.action_qc_test_import_wizard")
+action = env.ref("quality_control_stock_oca.action_qc_test_import_wizard").read()[0]
         ]]></field>
     </record>
 </odoo>
