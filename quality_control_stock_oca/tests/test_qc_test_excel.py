@@ -11,7 +11,7 @@ class TestQcTestExcel(TransactionCase):
         test = Test.create({"name": "Excel demo"})
         Question.create(
             {
-                "test": test.id,
+                "test_id": test.id,
                 "name": "Is it good?",
                 "type": "qualitative",
                 "min_value": 1,
@@ -28,7 +28,7 @@ class TestQcTestExcel(TransactionCase):
             Test.import_from_excel(tmp.name)
         imported = Test.search([("name", "=", "Excel demo")])
         self.assertTrue(imported)
-        question = imported.test_lines
+        question = imported.question_ids
         self.assertEqual(question.mapped("name"), ["Is it good?"])
         self.assertEqual(question.type, "qualitative")
         self.assertEqual(question.min_value, 1)
@@ -41,7 +41,7 @@ class TestQcTestExcel(TransactionCase):
         Test = self.env["qc.test"]
         Question = self.env["qc.test.question"]
         test = Test.create({"name": "Wizard demo"})
-        Question.create({"test": test.id, "name": "Ok?"})
+        Question.create({"test_id": test.id, "name": "Ok?"})
         wiz_export = (
             self.env["qc.test.export.wizard"]
             .with_context(active_ids=test.ids)
@@ -55,4 +55,4 @@ class TestQcTestExcel(TransactionCase):
         wiz_import.action_import()
         imported = Test.search([("name", "=", "Wizard demo")])
         self.assertTrue(imported)
-        self.assertEqual(imported.test_lines.mapped("name"), ["Ok?"])
+        self.assertEqual(imported.question_ids.mapped("name"), ["Ok?"])
