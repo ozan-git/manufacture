@@ -86,6 +86,11 @@ msgid "Picking Type"
 msgstr "Transfer Türü"
 
 #. module: quality_control_stock_oca
+#: model:ir.ui.menu,name:quality_control_oca.qc_menu
+msgid "Quality Control"
+msgstr "Kalite Kontrol"
+
+#. module: quality_control_stock_oca
 #: model:ir.model,name:quality_control_stock_oca.model_qc_inspection
 msgid "Quality control inspection"
 msgstr "Kalite kontrol denetimi"
