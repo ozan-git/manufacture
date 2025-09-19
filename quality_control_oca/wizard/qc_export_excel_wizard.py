@@ -95,10 +95,8 @@ class QcExportExcelWizard(models.TransientModel):
         return slug or "qc_tests"
 
     def _iter_template_rows(self, tests):
-        TriggerLine = self.env["qc.trigger.product_template_line"]
         for test in tests.sorted(key=lambda t: (t.code or "", t.name or "")):
-            trigger_lines = TriggerLine.search([("test", "=", test.id)])
-            product_payloads = self._prepare_product_payloads(trigger_lines)
+            product_payloads = self._prepare_product_payloads(test)
             if not product_payloads:
                 product_payloads = [self._empty_product_payload()]
             for question in test.test_lines.sorted(
@@ -164,19 +162,67 @@ class QcExportExcelWizard(models.TransientModel):
             "qualitative_value_ok": bool(value.ok),
         }
 
-    def _prepare_product_payloads(self, trigger_lines):
+    def _prepare_product_payloads(self, test):
         payloads = []
-        for trigger in trigger_lines.sorted(key=lambda tl: tl.product_template.display_name):
-            product = trigger.product_template
-            payloads.append(
-                {
-                    "product_template_default_code": product.default_code or "",
-                    "product_template_name": product.display_name or "",
-                    "trigger_name": trigger.trigger.name or "",
-                    "trigger_timing": trigger.timing or "after",
-                }
+        seen = set()
+
+        def add_payload(template, trigger_name, trigger_timing):
+            payload = self._build_product_payload(template, trigger_name, trigger_timing)
+            key = (
+                payload["product_template_default_code"],
+                payload["product_template_name"],
+                payload["trigger_name"],
+                payload["trigger_timing"],
             )
+            if key in seen:
+                return
+            seen.add(key)
+            payloads.append(payload)
+
+        TemplateLine = self.env["qc.trigger.product_template_line"]
+        for trigger_line in TemplateLine.search([("test", "=", test.id)]):
+            add_payload(
+                trigger_line.product_template,
+                trigger_line.trigger.name,
+                trigger_line.timing,
+            )
+
+        ProductLine = self.env["qc.trigger.product_line"]
+        for trigger_line in ProductLine.search([("test", "=", test.id)]):
+            template = (
+                trigger_line.product.product_tmpl_id
+                if trigger_line.product
+                else False
+            )
+            add_payload(template, trigger_line.trigger.name, trigger_line.timing)
+
+        CategoryLine = self.env["qc.trigger.product_category_line"]
+        for trigger_line in CategoryLine.search([("test", "=", test.id)]):
+            add_payload(False, trigger_line.trigger.name, trigger_line.timing)
+
+        related_template = self._resolve_related_product_template(test)
+        if related_template:
+            add_payload(related_template, "", "")
+
+        payloads.sort(
+            key=lambda payload: (
+                payload["product_template_default_code"],
+                payload["product_template_name"],
+                payload["trigger_name"],
+                payload["trigger_timing"],
+            )
+        )
         return payloads
+
+    def _build_product_payload(self, template, trigger_name, trigger_timing):
+        default_code = template.default_code if template else ""
+        name = template.display_name if template else ""
+        return {
+            "product_template_default_code": default_code or "",
+            "product_template_name": name or "",
+            "trigger_name": trigger_name or "",
+            "trigger_timing": trigger_timing or ("after" if trigger_name else ""),
+        }
 
     def _empty_product_payload(self):
         return {
@@ -185,6 +231,18 @@ class QcExportExcelWizard(models.TransientModel):
             "trigger_name": "",
             "trigger_timing": "",
         }
+
+    def _resolve_related_product_template(self, test):
+        if getattr(test, "type", False) != "related" or not test.object_id:
+            return False
+        reference = test.object_id
+        if hasattr(reference, "product_tmpl_id") and reference.product_tmpl_id:
+            return reference.product_tmpl_id
+        if hasattr(reference, "product_id") and reference.product_id:
+            return reference.product_id.product_tmpl_id
+        if getattr(reference, "_name", "") == "product.template":
+            return reference
+        return False
 
     def _get_external_id(self, record):
         if not record:

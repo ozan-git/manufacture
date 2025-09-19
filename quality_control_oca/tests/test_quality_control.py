@@ -224,6 +224,123 @@ class TestQualityControlOca(TestQualityControlOcaBase):
         uom_values = {row[header_index["uom_xmlid"]] for row in quantitative_rows}
         self.assertIn(uom_xmlid, uom_values)
 
+    def test_export_includes_trigger_and_product_details(self):
+        if openpyxl is None:
+            self.skipTest("openpyxl not installed")
+
+        product_template = self.env["product.template"].create(
+            {"name": "Export Template", "default_code": "EXP-TPL"}
+        )
+        uom_unit = self.env.ref("uom.product_uom_unit")
+        export_test = self.env["qc.test"].create(
+            {
+                "name": "Exported Test",
+                "code": "EXP-TEST",
+                "category": self.cat_generic.id,
+                "fill_correct_values": True,
+                "test_lines": [
+                    (
+                        0,
+                        0,
+                        {
+                            "name": "Length control",
+                            "code": "LEN",
+                            "type": "quantitative",
+                            "sequence": 5,
+                            "min_value": 1.0,
+                            "max_value": 5.0,
+                            "uom_id": uom_unit.id,
+                        },
+                    )
+                ],
+            }
+        )
+        self.env["qc.trigger.product_template_line"].create(
+            {
+                "trigger": self.qc_trigger.id,
+                "test": export_test.id,
+                "product_template": product_template.id,
+                "timing": "before",
+            }
+        )
+
+        wizard = (
+            self.env["qc.export.excel.wizard"]
+            .with_context(active_ids=[export_test.id])
+            .create({})
+        )
+        wizard.action_export()
+        workbook = openpyxl.load_workbook(
+            io.BytesIO(base64.b64decode(wizard.data_file))
+        )
+        try:
+            sheet = workbook.active
+            headers = list(
+                next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
+            )
+            header_index = {name: index for index, name in enumerate(headers)}
+            rows = [
+                list(row)
+                for row in sheet.iter_rows(min_row=2, values_only=True)
+                if any(row)
+            ]
+        finally:
+            workbook.close()
+
+        self.assertTrue(rows, "The export should include at least one data row.")
+        export_row = next(
+            (
+                row
+                for row in rows
+                if row[header_index["test_code"]] == export_test.code
+            ),
+            None,
+        )
+        self.assertIsNotNone(export_row, "The exported test should be present in the sheet.")
+
+        category_xmlid = self.cat_generic.get_external_id().get(self.cat_generic.id)
+        self.assertEqual(
+            export_row[header_index["product_template_default_code"]],
+            product_template.default_code,
+        )
+        self.assertEqual(
+            export_row[header_index["product_template_name"]],
+            product_template.display_name,
+        )
+        self.assertEqual(
+            export_row[header_index["trigger_name"]],
+            self.qc_trigger.name,
+        )
+        self.assertEqual(export_row[header_index["trigger_timing"]], "before")
+        self.assertEqual(export_row[header_index["test_code"]], export_test.code)
+        self.assertEqual(export_row[header_index["test_name"]], export_test.name)
+        self.assertEqual(export_row[header_index["test_type"]], export_test.type)
+        self.assertEqual(
+            export_row[header_index["test_category_xmlid"]],
+            category_xmlid,
+        )
+        self.assertTrue(export_row[header_index["fill_correct_values"]])
+
+        question = export_test.test_lines
+        self.assertEqual(
+            export_row[header_index["question_sequence"]], question.sequence
+        )
+        self.assertEqual(export_row[header_index["question_code"]], question.code)
+        self.assertEqual(export_row[header_index["question_name"]], question.name)
+        self.assertEqual(export_row[header_index["question_type"]], question.type)
+        self.assertIn(
+            export_row[header_index["question_notes"]],
+            (question.notes, None, ""),
+        )
+        self.assertEqual(
+            export_row[header_index["uom_xmlid"]],
+            uom_unit.get_external_id().get(uom_unit.id),
+        )
+        self.assertEqual(export_row[header_index["min_value"]], question.min_value)
+        self.assertEqual(export_row[header_index["max_value"]], question.max_value)
+        self.assertFalse(export_row[header_index["qualitative_value_name"]])
+        self.assertFalse(export_row[header_index["qualitative_value_ok"]])
+
     def test_categories(self):
         category1 = self.category_model.create({"name": "Category ONE"})
         category2 = self.category_model.create(
