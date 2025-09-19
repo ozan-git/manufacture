@@ -137,6 +137,14 @@ class TestQualityControlOca(TestQualityControlOcaBase):
         with self.assertRaises(exceptions.UserError):
             inspection4.action_confirm()
 
+    def test_import_template_available(self):
+        templates = self.env["qc.test"].get_import_templates()
+        template_url = "/quality_control_oca/static/xlsx/qc_product_questions_template.xlsx"
+        self.assertTrue(
+            any(template.get("template") == template_url for template in templates),
+            "The quality test import template should be exposed to the generic import view.",
+        )
+
     def test_categories(self):
         category1 = self.category_model.create({"name": "Category ONE"})
         category2 = self.category_model.create(

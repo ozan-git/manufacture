@@ -5,7 +5,7 @@
 # Copyright 2017 Simone Rubino - Agile Business Group
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
-from odoo import api, exceptions, fields, models
+from odoo import _, api, exceptions, fields, models
 
 
 class QcTest(models.Model):
@@ -71,6 +71,21 @@ class QcTest(models.Model):
         )
         action["context"] = context
         return action
+
+    @api.model
+    def get_import_templates(self):
+        """Expose the Excel template in the generic import view."""
+
+        templates = list(super().get_import_templates())
+        template_url = "/quality_control_oca/static/xlsx/qc_product_questions_template.xlsx"
+        if not any(template.get("template") == template_url for template in templates):
+            templates.append(
+                {
+                    "label": _("Quality tests Excel template"),
+                    "template": template_url,
+                }
+            )
+        return templates
 
     def _auto_init(self):
         """Ensure legacy databases get the new ``code`` column and index."""
