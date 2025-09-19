@@ -5,6 +5,9 @@
 # Copyright 2017 Simone Rubino - Agile Business Group
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
+import base64
+import io
+
 from odoo import exceptions
 from odoo.tests import new_test_user
 
@@ -12,6 +15,11 @@ from odoo.addons.base.models.ir_model import MODULE_UNINSTALL_FLAG
 from odoo.addons.base.tests.common import BaseCommon
 
 from ..models.qc_trigger_line import _filter_trigger_lines
+
+try:  # pragma: no cover - optional dependency handled at runtime
+    import openpyxl
+except ImportError:  # pragma: no cover - guarded import
+    openpyxl = None
 
 
 class TestQualityControlOcaBase(BaseCommon):
@@ -144,6 +152,24 @@ class TestQualityControlOca(TestQualityControlOcaBase):
             any(template.get("template") == template_url for template in templates),
             "The quality test import template should be exposed to the generic import view.",
         )
+
+    def test_export_contains_template_headers(self):
+        if openpyxl is None:
+            self.skipTest("openpyxl not installed")
+        wizard = (
+            self.env["qc.export.excel.wizard"].with_context(active_ids=[self.test.id]).create({})
+        )
+        wizard.action_export()
+        self.assertTrue(wizard.data_file, "The export wizard should generate a file.")
+        workbook = openpyxl.load_workbook(io.BytesIO(base64.b64decode(wizard.data_file)))
+        try:
+            sheet = workbook.active
+            headers = list(
+                next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
+            )
+        finally:
+            workbook.close()
+        self.assertListEqual(headers, wizard._get_template_headers())
 
     def test_categories(self):
         category1 = self.category_model.create({"name": "Category ONE"})

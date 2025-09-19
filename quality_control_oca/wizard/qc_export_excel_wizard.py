@@ -7,6 +7,7 @@ from datetime import datetime
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+from odoo.modules.module import get_resource_path
 
 try:  # pragma: no cover - optional dependency handled at runtime
     import openpyxl
@@ -186,24 +187,41 @@ class QcExportExcelWizard(models.TransientModel):
         return xmlids.get(record.id, "")
 
     def _get_template_headers(self):
-        return [
-            "product_template_default_code",
-            "product_template_name",
-            "test_code",
-            "test_name",
-            "test_type",
-            "test_category_xmlid",
-            "fill_correct_values",
-            "trigger_name",
-            "trigger_timing",
-            "question_sequence",
-            "question_code",
-            "question_name",
-            "question_type",
-            "question_notes",
-            "uom_xmlid",
-            "min_value",
-            "max_value",
-            "qualitative_value_name",
-            "qualitative_value_ok",
-        ]
+        if openpyxl is None:
+            raise UserError(
+                _(
+                    "The python package 'openpyxl' is required to load the Excel "
+                    "template. Please install it on the server environment."
+                )
+            )
+        template_path = self._get_template_path()
+        workbook = openpyxl.load_workbook(template_path, read_only=True)
+        try:
+            sheet = workbook.active
+            first_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
+        except StopIteration as exc:
+            raise UserError(
+                _(
+                    "The quality control Excel template is missing the header "
+                    "row. Please reinstall the module or restore the original "
+                    "template."
+                )
+            ) from exc
+        finally:
+            workbook.close()
+        return [value or "" for value in first_row]
+
+    def _get_template_path(self):
+        template_path = get_resource_path(
+            "quality_control_oca",
+            "static/xlsx",
+            "qc_product_questions_template.xlsx",
+        )
+        if not template_path:
+            raise UserError(
+                _(
+                    "The quality control Excel template could not be located in "
+                    "the module resources."
+                )
+            )
+        return template_path
