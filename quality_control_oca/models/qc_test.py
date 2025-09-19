@@ -50,6 +50,12 @@ class QcTest(models.Model):
         default=lambda self: self.env.company,
     )
 
+    def action_open_export_wizard(self):
+        """Open the export wizard without requiring XML-ID resolution at load."""
+
+        action = self.env.ref("quality_control_oca.action_qc_export_excel_wizard").read()[0]
+        return action
+
     def _auto_init(self):
         """Ensure legacy databases get the new ``code`` column and index."""
 
