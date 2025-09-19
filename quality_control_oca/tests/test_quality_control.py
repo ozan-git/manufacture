@@ -171,6 +171,59 @@ class TestQualityControlOca(TestQualityControlOcaBase):
             workbook.close()
         self.assertListEqual(headers, wizard._get_template_headers())
 
+    def test_export_rows_follow_template_structure(self):
+        if openpyxl is None:
+            self.skipTest("openpyxl not installed")
+        wizard = (
+            self.env["qc.export.excel.wizard"].with_context(active_ids=[self.test.id]).create({})
+        )
+        wizard.action_export()
+        workbook = openpyxl.load_workbook(io.BytesIO(base64.b64decode(wizard.data_file)))
+        try:
+            sheet = workbook.active
+            headers = list(
+                next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
+            )
+            rows = [
+                list(row)
+                for row in sheet.iter_rows(min_row=2, values_only=True)
+                if any(row)
+            ]
+        finally:
+            workbook.close()
+
+        self.assertTrue(rows, "The export should include at least one data row.")
+        header_index = {name: index for index, name in enumerate(headers)}
+
+        test_names = {
+            row[header_index["test_name"]]
+            for row in rows
+            if row[header_index["test_name"]]
+        }
+        self.assertIn(self.test.name, test_names)
+
+        question_types = {row[header_index["question_type"]] for row in rows}
+        self.assertIn("qualitative", question_types)
+        self.assertIn("quantitative", question_types)
+
+        qualitative_names = {
+            row[header_index["qualitative_value_name"]]
+            for row in rows
+            if row[header_index["qualitative_value_name"]]
+        }
+        self.assertIn(self.val_ok.name, qualitative_names)
+        self.assertIn(self.val_ko.name, qualitative_names)
+
+        uom_xmlid = self.qn_question.uom_id.get_external_id().get(
+            self.qn_question.uom_id.id
+        )
+        self.assertTrue(uom_xmlid, "The unit of measure should have a stable external ID.")
+        quantitative_rows = [
+            row for row in rows if row[header_index["question_type"]] == "quantitative"
+        ]
+        uom_values = {row[header_index["uom_xmlid"]] for row in quantitative_rows}
+        self.assertIn(uom_xmlid, uom_values)
+
     def test_categories(self):
         category1 = self.category_model.create({"name": "Category ONE"})
         category2 = self.category_model.create(

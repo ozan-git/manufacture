@@ -46,15 +46,21 @@ class QcExportExcelWizard(models.TransientModel):
         tests = self.test_ids
         if not tests:
             raise UserError(_("Select at least one test to export."))
-        headers = self._get_template_headers()
-        workbook = openpyxl.Workbook()
-        sheet = workbook.active
-        sheet.title = _("Quality Tests")
-        sheet.append(headers)
+        workbook = self._load_template_workbook()
+        try:
+            sheet = workbook.active
+            headers = self._read_template_headers(sheet)
+            self._clear_template_rows(sheet)
+        except Exception:
+            workbook.close()
+            raise
         for row in self._iter_template_rows(tests):
             sheet.append([row.get(column, "") for column in headers])
         buffer = io.BytesIO()
-        workbook.save(buffer)
+        try:
+            workbook.save(buffer)
+        finally:
+            workbook.close()
         buffer.seek(0)
         filename = self._build_filename(tests)
         self.write(
@@ -186,7 +192,18 @@ class QcExportExcelWizard(models.TransientModel):
         xmlids = record.get_external_id()
         return xmlids.get(record.id, "")
 
+    def _clear_template_rows(self, sheet):
+        if sheet.max_row and sheet.max_row > 1:
+            sheet.delete_rows(2, sheet.max_row - 1)
+
     def _get_template_headers(self):
+        workbook = self._load_template_workbook(read_only=True)
+        try:
+            return self._read_template_headers(workbook.active)
+        finally:
+            workbook.close()
+
+    def _load_template_workbook(self, read_only=False):
         if openpyxl is None:
             raise UserError(
                 _(
@@ -195,9 +212,18 @@ class QcExportExcelWizard(models.TransientModel):
                 )
             )
         template_path = self._get_template_path()
-        workbook = openpyxl.load_workbook(template_path, read_only=True)
         try:
-            sheet = workbook.active
+            return openpyxl.load_workbook(template_path, read_only=read_only)
+        except Exception as exc:
+            raise UserError(
+                _(
+                    "The quality control Excel template could not be loaded. "
+                    "Please reinstall the module or restore the original template."
+                )
+            ) from exc
+
+    def _read_template_headers(self, sheet):
+        try:
             first_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
         except StopIteration as exc:
             raise UserError(
@@ -207,8 +233,6 @@ class QcExportExcelWizard(models.TransientModel):
                     "template."
                 )
             ) from exc
-        finally:
-            workbook.close()
         return [value or "" for value in first_row]
 
     def _get_template_path(self):
