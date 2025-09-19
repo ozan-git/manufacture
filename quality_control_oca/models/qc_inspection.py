@@ -122,6 +122,7 @@ class QcInspection(models.Model):
         privileged_user = (
             self.env.is_superuser()
             or self.user_has_groups("quality_control_oca.group_quality_control_manager")
+            or self.user_has_groups("quality_control.group_quality_control_manager")
             or self.user_has_groups("base.group_system")
         )
 
