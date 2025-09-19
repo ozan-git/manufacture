@@ -255,3 +255,29 @@ class TestQualityControlOca(TestQualityControlOcaBase):
                     "ql_values": [(0, 0, {"name": "Qualitative answer", "ok": False})],
                 }
             )
+
+    def test_legacy_manager_can_delete_restricted_inspections(self):
+        legacy_manager = new_test_user(
+            self.env,
+            login="test_quality_control_legacy_manager",
+            groups="quality_control.group_quality_control_manager",
+        )
+
+        auto_generated_inspection = self.inspection_model.create(
+            {
+                "name": "Auto-generated inspection",
+                "auto_generated": True,
+            }
+        )
+        non_draft_inspection = self.inspection_model.create(
+            {
+                "name": "Non draft inspection",
+                "state": "ready",
+            }
+        )
+
+        auto_generated_inspection.with_user(legacy_manager).unlink()
+        self.assertFalse(auto_generated_inspection.exists())
+
+        non_draft_inspection.with_user(legacy_manager).unlink()
+        self.assertFalse(non_draft_inspection.exists())
