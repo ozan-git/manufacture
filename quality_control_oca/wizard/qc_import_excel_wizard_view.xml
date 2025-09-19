@@ -34,7 +34,7 @@
                     <field name="filename" invisible="1"/>
                     <field name="import_mode"/>
                 </group>
-                <group string="Preview" attrs="{'invisible': [('preview_line_ids', '=', False)]}">
+                <group string="Preview" modifiers="{'invisible': [('preview_line_ids', '=', False)]}">
                     <field
                         name="preview_line_ids"
                         context="{'no_open': True}"
