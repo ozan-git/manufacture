@@ -23,6 +23,7 @@
         "security/ir.model.access.csv",
         "wizard/qc_test_wizard_view.xml",
         "wizard/qc_import_excel_wizard_view.xml",
+        "wizard/qc_export_excel_wizard_view.xml",
         "views/qc_menus.xml",
         "views/qc_inspection_view.xml",
         "views/qc_test_category_view.xml",

@@ -2,3 +2,4 @@
 
 from . import qc_test_wizard
 from . import qc_import_excel_wizard
+from . import qc_export_excel_wizard

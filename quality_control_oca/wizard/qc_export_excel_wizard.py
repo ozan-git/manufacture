@@ -1,0 +1,209 @@
+# License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
+
+import base64
+import io
+import re
+from datetime import datetime
+
+from odoo import _, api, fields, models
+from odoo.exceptions import UserError
+
+try:  # pragma: no cover - optional dependency handled at runtime
+    import openpyxl
+except ImportError:  # pragma: no cover - guarded import
+    openpyxl = None
+
+
+class QcExportExcelWizard(models.TransientModel):
+    _name = "qc.export.excel.wizard"
+    _description = "Export quality tests to Excel"
+
+    test_ids = fields.Many2many(
+        comodel_name="qc.test",
+        string="Tests",
+        default=lambda self: self._default_test_ids(),
+    )
+    data_file = fields.Binary(string="File", readonly=True)
+    filename = fields.Char(string="Filename")
+
+    @api.model
+    def _default_test_ids(self):
+        active_ids = self.env.context.get("active_ids")
+        if active_ids:
+            return [(6, 0, active_ids)]
+        return False
+
+    def action_export(self):
+        self.ensure_one()
+        if openpyxl is None:
+            raise UserError(
+                _(
+                    "The python package 'openpyxl' is required to export Excel "
+                    "files. Please install it on the server environment."
+                )
+            )
+        tests = self.test_ids
+        if not tests:
+            raise UserError(_("Select at least one test to export."))
+        headers = self._get_template_headers()
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = _("Quality Tests")
+        sheet.append(headers)
+        for row in self._iter_template_rows(tests):
+            sheet.append([row.get(column, "") for column in headers])
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+        filename = self._build_filename(tests)
+        self.write(
+            {
+                "data_file": base64.b64encode(buffer.read()),
+                "filename": filename,
+            }
+        )
+        return {
+            "type": "ir.actions.act_url",
+            "url": (
+                "/web/content/?model=%s&id=%s&field=data_file&filename_field=filename"
+                "&download=true"
+            )
+            % (self._name, self.id),
+            "target": "self",
+        }
+
+    def _build_filename(self, tests):
+        if len(tests) == 1:
+            base = tests.code or tests.name or "qc_tests"
+        else:
+            base = "qc_tests"
+        base = self._sanitize_filename_component(base)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        return f"{base}_{timestamp}.xlsx"
+
+    def _sanitize_filename_component(self, text):
+        if not text:
+            return "qc_tests"
+        slug = re.sub(r"[^0-9A-Za-z-_]+", "_", text).strip("_")
+        return slug or "qc_tests"
+
+    def _iter_template_rows(self, tests):
+        TriggerLine = self.env["qc.trigger.product_template_line"]
+        for test in tests.sorted(key=lambda t: (t.code or "", t.name or "")):
+            trigger_lines = TriggerLine.search([("test", "=", test.id)])
+            product_payloads = self._prepare_product_payloads(trigger_lines)
+            if not product_payloads:
+                product_payloads = [self._empty_product_payload()]
+            for question in test.test_lines.sorted(
+                key=lambda q: (q.sequence, q.id)
+            ):
+                base = self._prepare_base_row(test, question)
+                for product_data in product_payloads:
+                    if question.type == "qualitative":
+                        values = question.ql_values or self.env[
+                            "qc.test.question.value"
+                        ]
+                        if values:
+                            for value in values.sorted(key=lambda v: v.id):
+                                row = {**base, **product_data}
+                                row.update(self._prepare_qualitative_payload(value))
+                                yield row
+                        else:
+                            row = {**base, **product_data}
+                            row.update(self._prepare_qualitative_payload(None))
+                            yield row
+                    else:
+                        row = {**base, **product_data}
+                        row.update(self._prepare_quantitative_payload(question))
+                        yield row
+
+    def _prepare_base_row(self, test, question):
+        return {
+            "test_code": test.code or "",
+            "test_name": test.name or "",
+            "test_type": test.type or "generic",
+            "test_category_xmlid": self._get_external_id(test.category),
+            "fill_correct_values": bool(test.fill_correct_values),
+            "question_sequence": question.sequence or 0,
+            "question_code": question.code or "",
+            "question_name": question.name or "",
+            "question_type": question.type or "qualitative",
+            "question_notes": question.notes or "",
+        }
+
+    def _prepare_quantitative_payload(self, question):
+        return {
+            "uom_xmlid": self._get_external_id(question.uom_id),
+            "min_value": question.min_value if question.min_value is not None else "",
+            "max_value": question.max_value if question.max_value is not None else "",
+            "qualitative_value_name": "",
+            "qualitative_value_ok": "",
+        }
+
+    def _prepare_qualitative_payload(self, value):
+        if not value:
+            return {
+                "uom_xmlid": "",
+                "min_value": "",
+                "max_value": "",
+                "qualitative_value_name": "",
+                "qualitative_value_ok": False,
+            }
+        return {
+            "uom_xmlid": "",
+            "min_value": "",
+            "max_value": "",
+            "qualitative_value_name": value.name or "",
+            "qualitative_value_ok": bool(value.ok),
+        }
+
+    def _prepare_product_payloads(self, trigger_lines):
+        payloads = []
+        for trigger in trigger_lines.sorted(key=lambda tl: tl.product_template.display_name):
+            product = trigger.product_template
+            payloads.append(
+                {
+                    "product_template_default_code": product.default_code or "",
+                    "product_template_name": product.display_name or "",
+                    "trigger_name": trigger.trigger.name or "",
+                    "trigger_timing": trigger.timing or "after",
+                }
+            )
+        return payloads
+
+    def _empty_product_payload(self):
+        return {
+            "product_template_default_code": "",
+            "product_template_name": "",
+            "trigger_name": "",
+            "trigger_timing": "",
+        }
+
+    def _get_external_id(self, record):
+        if not record:
+            return ""
+        xmlids = record.get_external_id()
+        return xmlids.get(record.id, "")
+
+    def _get_template_headers(self):
+        return [
+            "product_template_default_code",
+            "product_template_name",
+            "test_code",
+            "test_name",
+            "test_type",
+            "test_category_xmlid",
+            "fill_correct_values",
+            "trigger_name",
+            "trigger_timing",
+            "question_sequence",
+            "question_code",
+            "question_name",
+            "question_type",
+            "question_notes",
+            "uom_xmlid",
+            "min_value",
+            "max_value",
+            "qualitative_value_name",
+            "qualitative_value_ok",
+        ]

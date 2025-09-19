@@ -15,6 +15,21 @@ be imported into ``qc.test``, ``qc.test.question`` and
 ``qc.test.question.value`` records and linked to product template triggers
 through ``qc.trigger.product_template_line``.
 
+Downloading The Template
+------------------------
+
+You can always grab the latest version of the spreadsheet from the
+``Import Tests from Excel`` wizard. Click *Download template* to retrieve the
+file alongside the static link above.
+
+Exporting Existing Tests
+------------------------
+
+Open *Quality Control → Tests*, select the records you want, and use the
+*Export to Excel* button (or the *Actions ▸ Export Tests to Excel* entry).
+The generated workbook mirrors the import template, so you can tweak the data
+and re-import it without changing column names.
+
 Template Columns
 ----------------
 
