@@ -22,11 +22,9 @@ class QcImportExcelWizard(models.TransientModel):
     )
     data_file = fields.Binary(string="Excel File", required=True)
     filename = fields.Char(string="Filename")
-    preview_line_ids = fields.Many2many(
+    preview_line_ids = fields.One2many(
         comodel_name="qc.import.excel.preview",
-        relation="qc_import_excel_preview_rel",
-        column1="wizard_id",
-        column2="preview_id",
+        inverse_name="wizard_id",
         string="Preview Lines",
         readonly=True,
     )
@@ -60,41 +58,34 @@ class QcImportExcelWizard(models.TransientModel):
             self.preview_line_ids.unlink()
 
         preview_model = self.env["qc.import.excel.preview"]
-        preview_records = []
+        preview_vals_list = []
         for row in rows:
             data = row["data"]
             raw = row["raw"]
-            preview_records.append(
-                preview_model.create(
-                    {
-                        "row_index": row["row_index"],
-                        "product_template_default_code": self._get_product_code(
-                            data, raw
-                        ),
-                        "test_code": data.get("test_code"),
-                        "test_name": data.get("test_name"),
-                        "trigger_name": data.get("trigger_name"),
-                        "trigger_timing": data.get("trigger_timing"),
-                        "question_code": data.get("question_code"),
-                        "question_name": data.get("question_name"),
-                        "question_type": data.get("question_type"),
-                        "uom_xmlid": self._get_uom_xmlid(data, raw),
-                        "min_value": self._format_number(data.get("min_value")),
-                        "max_value": self._format_number(data.get("max_value")),
-                        "fill_correct_values": data.get("fill_correct_values", False),
-                        "qualitative_value_name": data.get(
-                            "qualitative_value_name"
-                        ),
-                        "qualitative_value_ok": data.get(
-                            "qualitative_value_ok", False
-                        ),
-                        "raw_payload": json.dumps(
-                            raw, ensure_ascii=False, sort_keys=True
-                        ),
-                    }
-                ).id
+            preview_vals_list.append(
+                {
+                    "wizard_id": self.id,
+                    "row_index": row["row_index"],
+                    "product_template_default_code": self._get_product_code(
+                        data, raw
+                    ),
+                    "test_code": data.get("test_code"),
+                    "test_name": data.get("test_name"),
+                    "trigger_name": data.get("trigger_name"),
+                    "trigger_timing": data.get("trigger_timing"),
+                    "question_code": data.get("question_code"),
+                    "question_name": data.get("question_name"),
+                    "question_type": data.get("question_type"),
+                    "uom_xmlid": self._get_uom_xmlid(data, raw),
+                    "min_value": self._format_number(data.get("min_value")),
+                    "max_value": self._format_number(data.get("max_value")),
+                    "fill_correct_values": data.get("fill_correct_values", False),
+                    "qualitative_value_name": data.get("qualitative_value_name"),
+                    "qualitative_value_ok": data.get("qualitative_value_ok", False),
+                    "raw_payload": json.dumps(raw, ensure_ascii=False, sort_keys=True),
+                }
             )
-        self.write({"preview_line_ids": [(6, 0, preview_records)]})
+        preview_model.create(preview_vals_list)
         return self._open_self_action()
 
     def action_import(self):
@@ -150,6 +141,11 @@ class QcImportExcelPreview(models.TransientModel):
     _description = "Preview rows generated from the QC Excel template"
     _order = "row_index"
 
+    wizard_id = fields.Many2one(
+        comodel_name="qc.import.excel.wizard",
+        required=True,
+        ondelete="cascade",
+    )
     row_index = fields.Integer(string="Row")
     product_template_default_code = fields.Char(string="Product Code")
     test_code = fields.Char(string="Test Code")
