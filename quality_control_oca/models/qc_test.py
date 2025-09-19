@@ -50,6 +50,20 @@ class QcTest(models.Model):
         default=lambda self: self.env.company,
     )
 
+    def _auto_init(self):
+        """Ensure legacy databases get the new ``code`` column and index."""
+
+        self._cr.execute(
+            'ALTER TABLE "%s" ADD COLUMN IF NOT EXISTS "code" varchar'
+            % self._table
+        )
+        res = super()._auto_init()
+        self._cr.execute(
+            'CREATE INDEX IF NOT EXISTS "%s_code_index" ON "%s" ("code")'
+            % (self._table, self._table)
+        )
+        return res
+
 
 class QcTestQuestion(models.Model):
     """Each test line is a question with its valid value(s)."""
@@ -105,6 +119,20 @@ class QcTestQuestion(models.Model):
     max_value = fields.Float(string="Max", digits="Quality Control")
     uom_id = fields.Many2one(comodel_name="uom.uom", string="Uom")
 
+    def _auto_init(self):
+        """Ensure legacy databases get the new ``code`` column and index."""
+
+        self._cr.execute(
+            'ALTER TABLE "%s" ADD COLUMN IF NOT EXISTS "code" varchar'
+            % self._table
+        )
+        res = super()._auto_init()
+        self._cr.execute(
+            'CREATE INDEX IF NOT EXISTS "%s_code_index" ON "%s" ("code")'
+            % (self._table, self._table)
+        )
+        return res
+
 
 class QcTestQuestionValue(models.Model):
     _name = "qc.test.question.value"
@@ -116,3 +144,4 @@ class QcTestQuestionValue(models.Model):
         string="Correct answer?",
         help="When this field is marked, the answer is considered correct.",
     )
+
