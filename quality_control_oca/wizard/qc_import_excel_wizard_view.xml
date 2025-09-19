@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_qc_import_excel_wizard" model="ir.ui.view">
+        <field name="name">qc.import.excel.wizard.form</field>
+        <field name="model">qc.import.excel.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Import Quality Tests">
+                <group>
+                    <field name="data_file" filename="filename"/>
+                    <field name="filename" invisible="1"/>
+                    <field name="import_mode"/>
+                </group>
+                <group string="Preview" attrs="{'invisible': [('preview_line_ids', '=', False)]}">
+                    <field
+                        name="preview_line_ids"
+                        mode="tree"
+                        context="{'no_open': True}"
+                        options="{'no_create': True, 'no_edit': True, 'no_open': True}"
+                    >
+                        <tree string="Preview" create="false" edit="false" delete="false">
+                            <field name="row_index"/>
+                            <field name="product_template_default_code"/>
+                            <field name="test_code"/>
+                            <field name="test_name"/>
+                            <field name="trigger_name"/>
+                            <field name="trigger_timing"/>
+                            <field name="question_code"/>
+                            <field name="question_name"/>
+                            <field name="question_type"/>
+                            <field name="qualitative_value_name"/>
+                            <field name="qualitative_value_ok" widget="boolean_toggle"/>
+                            <field name="fill_correct_values" widget="boolean_toggle"/>
+                            <field name="uom_xmlid"/>
+                            <field name="min_value"/>
+                            <field name="max_value"/>
+                        </tree>
+                    </field>
+                </group>
+                <footer>
+                    <button
+                        name="action_preview"
+                        type="object"
+                        class="btn-secondary"
+                        string="Preview"
+                    />
+                    <button
+                        name="action_import"
+                        type="object"
+                        class="btn-primary"
+                        string="Import"
+                    />
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_qc_import_excel_wizard" model="ir.actions.act_window">
+        <field name="name">Import Tests from Excel</field>
+        <field name="res_model">qc.import.excel.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_qc_import_excel_wizard"/>
+        <field name="target">new</field>
+        <field name="context">{'default_import_mode': 'create'}</field>
+    </record>
+
+    <menuitem
+        id="menu_qc_import_excel"
+        name="Import Tests from Excel"
+        parent="qc_menu_test_parent"
+        action="action_qc_import_excel_wizard"
+        sequence="60"
+    />
+</odoo>

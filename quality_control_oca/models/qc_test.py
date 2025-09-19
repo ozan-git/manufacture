@@ -26,6 +26,7 @@ class QcTest(models.Model):
             self.object_id = False
 
     active = fields.Boolean(default=True)
+    code = fields.Char(index=True, help="Unique identifier used for imports and integrations.")
     name = fields.Char(required=True, translate=True)
     test_lines = fields.One2many(
         comodel_name="qc.test.question",
@@ -86,6 +87,7 @@ class QcTestQuestion(models.Model):
                 )
 
     sequence = fields.Integer(required=True, default="10")
+    code = fields.Char(index=True, help="Unique identifier used for imports and integrations.")
     test = fields.Many2one(comodel_name="qc.test")
     name = fields.Char(required=True, translate=True)
     type = fields.Selection(
