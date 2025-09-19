@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="view_qc_import_excel_preview_tree" model="ir.ui.view">
-        <field name="name">qc.import.excel.preview.tree</field>
+        <field name="name">qc.import.excel.preview.list</field>
         <field name="model">qc.import.excel.preview</field>
         <field name="arch" type="xml">
-            <tree string="Preview" create="false" edit="false" delete="false">
+            <list string="Preview" create="false" edit="false" delete="false">
                 <field name="row_index"/>
                 <field name="product_template_default_code"/>
                 <field name="test_code"/>
@@ -20,7 +20,7 @@
                 <field name="uom_xmlid"/>
                 <field name="min_value"/>
                 <field name="max_value"/>
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -39,7 +39,7 @@
                         name="preview_line_ids"
                         context="{'no_open': True}"
                         options="{'no_create': True, 'no_edit': True, 'no_open': True}"
-                        views="[(ref('quality_control_oca.view_qc_import_excel_preview_tree'), 'tree')]"
+                        views="[(ref('quality_control_oca.view_qc_import_excel_preview_tree'), 'list')]"
                     />
                 </group>
                 <footer>
