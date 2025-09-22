@@ -5,7 +5,7 @@
 # Copyright 2017 Simone Rubino - Agile Business Group
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
-from odoo import api, exceptions, fields, models
+from odoo import _, api, exceptions, fields, models
 
 
 class QcTest(models.Model):
@@ -34,6 +34,11 @@ class QcTest(models.Model):
         string="Questions",
         copy=True,
     )
+    trigger_product_template_line_ids = fields.One2many(
+        comodel_name="qc.trigger.product_template_line",
+        inverse_name="test",
+        string="Product Template Trigger Lines",
+    )
     object_id = fields.Reference(
         string="Reference object",
         selection="object_selection_values",
@@ -49,6 +54,43 @@ class QcTest(models.Model):
         comodel_name="res.company",
         default=lambda self: self.env.company,
     )
+
+    @api.model
+    def action_open_export_wizard(self):
+        """Open the export wizard without requiring XML-ID resolution at load."""
+
+        action = self.env["ir.actions.actions"]._for_xml_id(
+            "quality_control_oca.action_qc_export_excel_wizard"
+        )
+        context = dict(self.env.context)
+        active_ids = context.get("active_ids") or self.ids
+        if not isinstance(active_ids, list):
+            active_ids = [active_ids]
+        context.update(
+            {
+                "active_model": "qc.test",
+                "active_ids": active_ids,
+                "active_id": active_ids[0] if active_ids else False,
+                "default_test_ids": [(6, 0, active_ids)],
+            }
+        )
+        action["context"] = context
+        return action
+
+    @api.model
+    def get_import_templates(self):
+        """Expose the Excel template in the generic import view."""
+
+        templates = list(super().get_import_templates())
+        template_url = "/quality_control_oca/static/xlsx/qc_product_questions_template.xlsx"
+        if not any(template.get("template") == template_url for template in templates):
+            templates.append(
+                {
+                    "label": _("Quality tests Excel template"),
+                    "template": template_url,
+                }
+            )
+        return templates
 
     def _auto_init(self):
         """Ensure legacy databases get the new ``code`` column and index."""

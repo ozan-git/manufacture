@@ -42,33 +42,33 @@ Template Columns
      - Accepted values
      - Description
      - Example
-   * - ``product_template_default_code``
+   * - ``trigger_product_template_line_ids/product_template/default_code``
      - Optional
      - Text
      - Internal reference of the product template used to bind the trigger.
        Leave empty to keep the test generic.
      - ``FERT-001``
-   * - ``product_template_name``
+   * - ``trigger_product_template_line_ids/product_template/name``
      - Optional
      - Text
      - Human-readable product template name; used for review only.
      - ``Sterilized Filter``
-   * - ``test_code``
+   * - ``code``
      - Required
      - Text (unique per test)
      - Identifier used to create or update the related ``qc.test``.
      - ``STERIL_TEST``
-   * - ``test_name``
+   * - ``name``
      - Required
      - Text
      - Display name of the quality test.
      - ``Sterility Check``
-   * - ``test_type``
+   * - ``type``
      - Required
      - ``generic`` | ``related``
      - Determines whether the test is generic or linked to a specific model.
      - ``related``
-   * - ``test_category_xmlid``
+   * - ``category/id``
      - Optional
      - Module XML-ID
      - Reference to an existing ``qc.test.category`` record (``module.record``).
@@ -78,64 +78,64 @@ Template Columns
      - ``TRUE`` | ``FALSE``
      - Pre-fill inspection lines with the "OK" values when the inspection is created.
      - ``TRUE``
-   * - ``trigger_name``
+   * - ``trigger_product_template_line_ids/trigger/name``
      - Optional
      - Text
      - Name of the ``qc.trigger`` to use when creating the
        ``qc.trigger.product_template_line``.
      - ``Manufacturing Order``
-   * - ``trigger_timing``
+   * - ``trigger_product_template_line_ids/timing``
      - Optional
      - ``before`` | ``after`` | ``plan_ahead``
      - Timing applied to the trigger line when the product template is filled.
      - ``after``
-   * - ``question_sequence``
+   * - ``test_lines/sequence``
      - Required
      - Integer
      - Sequence used to order the questions within the test.
      - ``10``
-   * - ``question_code``
+   * - ``test_lines/code``
      - Required
      - Text (unique per test)
      - Identifier to help detect and update existing questions.
      - ``STER_TEMP``
-   * - ``question_name``
+   * - ``test_lines/name``
      - Required
      - Text
      - Label shown on the inspection line.
      - ``Sterilization Temperature``
-   * - ``question_type``
+   * - ``test_lines/type``
      - Required
      - ``qualitative`` | ``quantitative``
      - Defines whether the question expects a discrete value or a numeric range.
      - ``quantitative``
-   * - ``question_notes``
+   * - ``test_lines/notes``
      - Optional
      - Text
      - Additional instructions displayed on the inspection line.
      - ``Target range 120-130 C``
-   * - ``uom_xmlid``
+   * - ``test_lines/uom_id/id``
      - Conditional
      - Module XML-ID
      - Unit of measure for quantitative questions. Leave empty for qualitative ones.
      - ``uom.product_uom_celsius``
-   * - ``min_value``
+   * - ``test_lines/min_value``
      - Conditional
      - Number
      - Minimum accepted value for quantitative questions.
      - ``120``
-   * - ``max_value``
+   * - ``test_lines/max_value``
      - Conditional
      - Number
      - Maximum accepted value for quantitative questions.
      - ``130``
-   * - ``qualitative_value_name``
+   * - ``test_lines/ql_values/name``
      - Conditional
      - Text
      - Qualitative option created under the question. Create extra rows for
        additional values.
      - ``Clear``
-   * - ``qualitative_value_ok``
+   * - ``test_lines/ql_values/ok``
      - Conditional
      - ``TRUE`` | ``FALSE``
      - Marks the qualitative option as acceptable. At least one value must be
@@ -191,7 +191,8 @@ Filling Checklist
 
 #. Download the template and make a copy for your project.
 #. Replace the sample rows with your product and test data. Reuse the same
-   ``test_code`` and ``question_code`` when you want to update existing records.
+   ``code`` and ``test_lines/code`` values when you want to update existing
+   records.
 #. For qualitative questions, create one row per answer value and mark the
    acceptable option with ``TRUE``.
 #. Leave product columns empty for tests that should stay generic and manually

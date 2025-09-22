@@ -111,14 +111,16 @@ class QcImportExcelWizard(models.TransientModel):
         product = data.get("product_template")
         if product:
             return product.default_code
-        return raw.get("product_template_default_code")
+        return raw.get(
+            "trigger_product_template_line_ids/product_template/default_code"
+        )
 
     def _get_uom_xmlid(self, data, raw):
         uom = data.get("uom_id")
         if not uom:
-            return raw.get("uom_xmlid")
+            return raw.get("test_lines/uom_id/id")
         xmlids = uom.get_external_id()
-        return xmlids.get(uom.id) or raw.get("uom_xmlid")
+        return xmlids.get(uom.id) or raw.get("test_lines/uom_id/id")
 
     def _format_number(self, value):
         if value in (None, ""):

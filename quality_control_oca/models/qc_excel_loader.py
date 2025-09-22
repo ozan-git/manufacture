@@ -22,13 +22,13 @@ class QcExcelLoader(models.AbstractModel):
     _VALID_TRIGGER_TIMINGS = {"before", "after", "plan_ahead"}
     _BOOL_TRUE = {"1", "true", "yes", "y", "ok", "t"}
     _MANDATORY_FIELDS = {
-        "test_code",
-        "test_name",
-        "test_type",
-        "question_sequence",
-        "question_code",
-        "question_name",
-        "question_type",
+        "code",
+        "name",
+        "type",
+        "test_lines/sequence",
+        "test_lines/code",
+        "test_lines/name",
+        "test_lines/type",
     }
 
     def load_from_binary(self, data_file, filename=None):
@@ -116,72 +116,83 @@ class QcExcelLoader(models.AbstractModel):
                         "missing_field",
                     )
                 )
-        test_type = (raw_row.get("test_type") or "").lower()
+        test_type = (raw_row.get("type") or "").lower()
         if test_type and test_type not in self._VALID_TEST_TYPES:
             errors.append(
                 self._error(
                     row_index,
-                    "test_type",
+                    "type",
                     _("must be one of: %s")
                     % ", ".join(sorted(self._VALID_TEST_TYPES)),
                     "invalid_test_type",
                 )
             )
-        question_type = (raw_row.get("question_type") or "").lower()
+        question_type = (raw_row.get("test_lines/type") or "").lower()
         if question_type and question_type not in self._VALID_QUESTION_TYPES:
             errors.append(
                 self._error(
                     row_index,
-                    "question_type",
+                    "test_lines/type",
                     _("must be either 'qualitative' or 'quantitative'."),
                     "invalid_question_type",
                 )
             )
 
-        trigger_timing = (raw_row.get("trigger_timing") or "after").lower()
+        trigger_timing = (
+            raw_row.get("trigger_product_template_line_ids/timing") or "after"
+        ).lower()
         if trigger_timing and trigger_timing not in self._VALID_TRIGGER_TIMINGS:
             errors.append(
                 self._error(
                     row_index,
-                    "trigger_timing",
+                    "trigger_product_template_line_ids/timing",
                     _("must be one of: %s")
                     % ", ".join(sorted(self._VALID_TRIGGER_TIMINGS)),
                     "invalid_trigger_timing",
                 )
             )
 
-        normalized["test_code"] = (raw_row.get("test_code") or "").strip()
-        normalized["test_name"] = (raw_row.get("test_name") or "").strip()
+        normalized["test_code"] = (raw_row.get("code") or "").strip()
+        normalized["test_name"] = (raw_row.get("name") or "").strip()
         normalized["test_type"] = test_type or "generic"
         normalized["fill_correct_values"] = self._to_bool(
             raw_row.get("fill_correct_values")
         )
-        normalized["trigger_name"] = (raw_row.get("trigger_name") or "").strip()
+        normalized["trigger_name"] = (
+            raw_row.get("trigger_product_template_line_ids/trigger/name") or ""
+        ).strip()
         normalized["trigger_timing"] = trigger_timing or "after"
         if normalized["product_template"] and not normalized["trigger_name"]:
             warnings.append(
                 self._warning(
                     row_index,
-                    "trigger_name",
+                    "trigger_product_template_line_ids/trigger/name",
                     _("No trigger name provided; a default value will be used."),
                     "missing_trigger_name",
                 )
             )
-        normalized["question_code"] = (raw_row.get("question_code") or "").strip()
-        normalized["question_name"] = (raw_row.get("question_name") or "").strip()
+        normalized["question_code"] = (
+            raw_row.get("test_lines/code") or ""
+        ).strip()
+        normalized["question_name"] = (
+            raw_row.get("test_lines/name") or ""
+        ).strip()
         normalized["question_type"] = question_type or "qualitative"
         normalized["question_sequence"] = self._to_int(
-            raw_row.get("question_sequence"),
+            raw_row.get("test_lines/sequence"),
             row_index,
-            "question_sequence",
+            "test_lines/sequence",
             errors,
         )
-        normalized["question_notes"] = (raw_row.get("question_notes") or "").strip()
+        normalized["question_notes"] = (
+            raw_row.get("test_lines/notes") or ""
+        )
+        normalized["question_notes"] = normalized["question_notes"].strip()
         normalized["qualitative_value_name"] = (
-            (raw_row.get("qualitative_value_name") or "").strip()
+            (raw_row.get("test_lines/ql_values/name") or "").strip()
         )
         normalized["qualitative_value_ok"] = self._to_bool(
-            raw_row.get("qualitative_value_ok")
+            raw_row.get("test_lines/ql_values/ok")
         )
 
         test_translations, test_warnings = self._extract_translations(
@@ -200,15 +211,20 @@ class QcExcelLoader(models.AbstractModel):
         normalized["question_translations"] = question_translations
         warnings.extend(question_warnings)
 
-        category_xmlid = raw_row.get("test_category_xmlid")
+        category_xmlid = raw_row.get("category/id")
         normalized["test_category_id"] = self._resolve_xmlid(
             category_xmlid,
             row_index,
-            "test_category_xmlid",
+            "category/id",
             errors,
         )
 
-        product_code = (raw_row.get("product_template_default_code") or "").strip()
+        product_code = (
+            raw_row.get(
+                "trigger_product_template_line_ids/product_template/default_code"
+            )
+            or ""
+        ).strip()
         normalized["product_template"] = self._resolve_product(
             product_code, row_index, errors
         )
@@ -216,25 +232,36 @@ class QcExcelLoader(models.AbstractModel):
             errors.append(
                 self._error(
                     row_index,
-                    "product_template_default_code",
+                    "trigger_product_template_line_ids/product_template/default_code",
                     _("is required when the test type is set to related."),
                     "missing_product_for_related",
                 )
             )
         normalized["product_template_name"] = (
-            (raw_row.get("product_template_name") or "").strip()
+            (
+                raw_row.get(
+                    "trigger_product_template_line_ids/product_template/name"
+                )
+                or ""
+            ).strip()
         )
 
-        uom_xmlid = raw_row.get("uom_xmlid")
+        uom_xmlid = raw_row.get("test_lines/uom_id/id")
         normalized["uom_id"] = self._resolve_xmlid(
-            uom_xmlid, row_index, "uom_xmlid", errors
+            uom_xmlid, row_index, "test_lines/uom_id/id", errors
         )
 
         normalized["min_value"] = self._to_float(
-            raw_row.get("min_value"), row_index, "min_value", errors
+            raw_row.get("test_lines/min_value"),
+            row_index,
+            "test_lines/min_value",
+            errors,
         )
         normalized["max_value"] = self._to_float(
-            raw_row.get("max_value"), row_index, "max_value", errors
+            raw_row.get("test_lines/max_value"),
+            row_index,
+            "test_lines/max_value",
+            errors,
         )
 
         if normalized["question_type"] == "quantitative":
@@ -242,7 +269,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row_index,
-                        "min_value",
+                        "test_lines/min_value",
                         _("is required for quantitative questions."),
                         "missing_min_value",
                     )
@@ -251,7 +278,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row_index,
-                        "max_value",
+                        "test_lines/max_value",
                         _("is required for quantitative questions."),
                         "missing_max_value",
                     )
@@ -260,7 +287,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row_index,
-                        "uom_xmlid",
+                        "test_lines/uom_id/id",
                         _("must be provided for quantitative questions."),
                         "missing_uom",
                     )
@@ -273,7 +300,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row_index,
-                        "min_value",
+                        "test_lines/min_value",
                         _("cannot be greater than 'max_value'."),
                         "invalid_range",
                     )
@@ -281,12 +308,12 @@ class QcExcelLoader(models.AbstractModel):
         else:
             if (
                 normalized["qualitative_value_name"] == ""
-                and header_index.get("qualitative_value_name") is not None
+                and header_index.get("test_lines/ql_values/name") is not None
             ):
                 errors.append(
                     self._error(
                         row_index,
-                        "qualitative_value_name",
+                        "test_lines/ql_values/name",
                         _("is required for qualitative questions."),
                         "missing_qualitative_value",
                     )
@@ -327,7 +354,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row["row_index"],
-                        "test_type",
+                        "type",
                         _("conflicts with previous rows for the same test."),
                         "test_type_conflict",
                     )
@@ -348,7 +375,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row["row_index"],
-                        "test_category_xmlid",
+                        "category/id",
                         _("conflicts with previous rows for the same test."),
                         "test_category_conflict",
                     )
@@ -389,7 +416,7 @@ class QcExcelLoader(models.AbstractModel):
                     errors.append(
                         self._error(
                             row["row_index"],
-                            "trigger_name",
+                            "trigger_product_template_line_ids/trigger/name",
                             _(
                                 "conflicts with another row referencing the same product."
                             ),
@@ -404,7 +431,7 @@ class QcExcelLoader(models.AbstractModel):
                     errors.append(
                         self._error(
                             row["row_index"],
-                            "trigger_timing",
+                            "trigger_product_template_line_ids/timing",
                             _(
                                 "conflicts with another row referencing the same product."
                             ),
@@ -438,7 +465,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row["row_index"],
-                        "question_name",
+                        "test_lines/name",
                         _(
                             "conflicts with previous rows for the same question."
                         ),
@@ -449,7 +476,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row["row_index"],
-                        "question_type",
+                        "test_lines/type",
                         _(
                             "conflicts with previous rows for the same question."
                         ),
@@ -460,7 +487,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row["row_index"],
-                        "question_sequence",
+                        "test_lines/sequence",
                         _(
                             "conflicts with previous rows for the same question."
                         ),
@@ -471,7 +498,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row["row_index"],
-                        "uom_xmlid",
+                        "test_lines/uom_id/id",
                         _(
                             "conflicts with previous rows for the same question."
                         ),
@@ -482,7 +509,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row["row_index"],
-                        "min_value",
+                        "test_lines/min_value",
                         _(
                             "conflicts with previous rows for the same question."
                         ),
@@ -493,7 +520,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row["row_index"],
-                        "max_value",
+                        "test_lines/max_value",
                         _(
                             "conflicts with previous rows for the same question."
                         ),
@@ -909,7 +936,7 @@ class QcExcelLoader(models.AbstractModel):
             errors.append(
                 self._error(
                     row_index,
-                    "product_template_default_code",
+                    "trigger_product_template_line_ids/product_template/default_code",
                     _("Product with code '%s' not found.") % default_code,
                     "unknown_product",
                 )

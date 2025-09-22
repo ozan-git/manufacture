@@ -7,6 +7,7 @@ from datetime import datetime
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+from odoo.modules.module import get_resource_path
 
 try:  # pragma: no cover - optional dependency handled at runtime
     import openpyxl
@@ -45,15 +46,21 @@ class QcExportExcelWizard(models.TransientModel):
         tests = self.test_ids
         if not tests:
             raise UserError(_("Select at least one test to export."))
-        headers = self._get_template_headers()
-        workbook = openpyxl.Workbook()
-        sheet = workbook.active
-        sheet.title = _("Quality Tests")
-        sheet.append(headers)
+        workbook = self._load_template_workbook()
+        try:
+            sheet = workbook.active
+            headers = self._read_template_headers(sheet)
+            self._clear_template_rows(sheet)
+        except Exception:
+            workbook.close()
+            raise
         for row in self._iter_template_rows(tests):
             sheet.append([row.get(column, "") for column in headers])
         buffer = io.BytesIO()
-        workbook.save(buffer)
+        try:
+            workbook.save(buffer)
+        finally:
+            workbook.close()
         buffer.seek(0)
         filename = self._build_filename(tests)
         self.write(
@@ -88,10 +95,8 @@ class QcExportExcelWizard(models.TransientModel):
         return slug or "qc_tests"
 
     def _iter_template_rows(self, tests):
-        TriggerLine = self.env["qc.trigger.product_template_line"]
         for test in tests.sorted(key=lambda t: (t.code or "", t.name or "")):
-            trigger_lines = TriggerLine.search([("test", "=", test.id)])
-            product_payloads = self._prepare_product_payloads(trigger_lines)
+            product_payloads = self._prepare_product_payloads(test)
             if not product_payloads:
                 product_payloads = [self._empty_product_payload()]
             for question in test.test_lines.sorted(
@@ -119,65 +124,137 @@ class QcExportExcelWizard(models.TransientModel):
 
     def _prepare_base_row(self, test, question):
         return {
-            "test_code": test.code or "",
-            "test_name": test.name or "",
-            "test_type": test.type or "generic",
-            "test_category_xmlid": self._get_external_id(test.category),
+            "code": test.code or "",
+            "name": test.name or "",
+            "type": test.type or "generic",
+            "category/id": self._get_external_id(test.category),
             "fill_correct_values": bool(test.fill_correct_values),
-            "question_sequence": question.sequence or 0,
-            "question_code": question.code or "",
-            "question_name": question.name or "",
-            "question_type": question.type or "qualitative",
-            "question_notes": question.notes or "",
+            "test_lines/sequence": question.sequence or 0,
+            "test_lines/code": question.code or "",
+            "test_lines/name": question.name or "",
+            "test_lines/type": question.type or "qualitative",
+            "test_lines/notes": question.notes or "",
         }
 
     def _prepare_quantitative_payload(self, question):
         return {
-            "uom_xmlid": self._get_external_id(question.uom_id),
-            "min_value": question.min_value if question.min_value is not None else "",
-            "max_value": question.max_value if question.max_value is not None else "",
-            "qualitative_value_name": "",
-            "qualitative_value_ok": "",
+            "test_lines/uom_id/id": self._get_external_id(question.uom_id),
+            "test_lines/min_value": (
+                question.min_value if question.min_value is not None else ""
+            ),
+            "test_lines/max_value": (
+                question.max_value if question.max_value is not None else ""
+            ),
+            "test_lines/ql_values/name": "",
+            "test_lines/ql_values/ok": "",
         }
 
     def _prepare_qualitative_payload(self, value):
         if not value:
             return {
-                "uom_xmlid": "",
-                "min_value": "",
-                "max_value": "",
-                "qualitative_value_name": "",
-                "qualitative_value_ok": False,
+                "test_lines/uom_id/id": "",
+                "test_lines/min_value": "",
+                "test_lines/max_value": "",
+                "test_lines/ql_values/name": "",
+                "test_lines/ql_values/ok": False,
             }
         return {
-            "uom_xmlid": "",
-            "min_value": "",
-            "max_value": "",
-            "qualitative_value_name": value.name or "",
-            "qualitative_value_ok": bool(value.ok),
+            "test_lines/uom_id/id": "",
+            "test_lines/min_value": "",
+            "test_lines/max_value": "",
+            "test_lines/ql_values/name": value.name or "",
+            "test_lines/ql_values/ok": bool(value.ok),
         }
 
-    def _prepare_product_payloads(self, trigger_lines):
+    def _prepare_product_payloads(self, test):
         payloads = []
-        for trigger in trigger_lines.sorted(key=lambda tl: tl.product_template.display_name):
-            product = trigger.product_template
-            payloads.append(
-                {
-                    "product_template_default_code": product.default_code or "",
-                    "product_template_name": product.display_name or "",
-                    "trigger_name": trigger.trigger.name or "",
-                    "trigger_timing": trigger.timing or "after",
-                }
+        seen = set()
+
+        def add_payload(template, trigger_name, trigger_timing):
+            payload = self._build_product_payload(template, trigger_name, trigger_timing)
+            key = (
+                payload[
+                    "trigger_product_template_line_ids/product_template/default_code"
+                ],
+                payload["trigger_product_template_line_ids/product_template/name"],
+                payload["trigger_product_template_line_ids/trigger/name"],
+                payload["trigger_product_template_line_ids/timing"],
             )
+            if key in seen:
+                return
+            seen.add(key)
+            payloads.append(payload)
+
+        TemplateLine = self.env["qc.trigger.product_template_line"]
+        for trigger_line in TemplateLine.search([("test", "=", test.id)]):
+            add_payload(
+                trigger_line.product_template,
+                trigger_line.trigger.name,
+                trigger_line.timing,
+            )
+
+        ProductLine = self.env["qc.trigger.product_line"]
+        for trigger_line in ProductLine.search([("test", "=", test.id)]):
+            template = (
+                trigger_line.product.product_tmpl_id
+                if trigger_line.product
+                else False
+            )
+            add_payload(template, trigger_line.trigger.name, trigger_line.timing)
+
+        CategoryLine = self.env["qc.trigger.product_category_line"]
+        for trigger_line in CategoryLine.search([("test", "=", test.id)]):
+            add_payload(False, trigger_line.trigger.name, trigger_line.timing)
+
+        related_template = self._resolve_related_product_template(test)
+        if related_template:
+            add_payload(related_template, "", "")
+
+        payloads.sort(
+            key=lambda payload: (
+                payload[
+                    "trigger_product_template_line_ids/product_template/default_code"
+                ],
+                payload["trigger_product_template_line_ids/product_template/name"],
+                payload["trigger_product_template_line_ids/trigger/name"],
+                payload["trigger_product_template_line_ids/timing"],
+            )
+        )
         return payloads
+
+    def _build_product_payload(self, template, trigger_name, trigger_timing):
+        default_code = template.default_code if template else ""
+        name = template.display_name if template else ""
+        return {
+            "trigger_product_template_line_ids/product_template/default_code": (
+                default_code or ""
+            ),
+            "trigger_product_template_line_ids/product_template/name": name or "",
+            "trigger_product_template_line_ids/trigger/name": trigger_name or "",
+            "trigger_product_template_line_ids/timing": (
+                trigger_timing or ("after" if trigger_name else "")
+            ),
+        }
 
     def _empty_product_payload(self):
         return {
-            "product_template_default_code": "",
-            "product_template_name": "",
-            "trigger_name": "",
-            "trigger_timing": "",
+            "trigger_product_template_line_ids/product_template/default_code": "",
+            "trigger_product_template_line_ids/product_template/name": "",
+            "trigger_product_template_line_ids/trigger/name": "",
+            "trigger_product_template_line_ids/timing": "",
         }
+
+    def _resolve_related_product_template(self, test):
+        if getattr(test, "type", False) != "related" or not test.object_id:
+            return False
+        reference = test.object_id
+        if hasattr(reference, "product_tmpl_id") and reference.product_tmpl_id:
+            return reference.product_tmpl_id
+        if hasattr(reference, "product_id") and reference.product_id:
+            return reference.product_id.product_tmpl_id
+        if getattr(reference, "_name", "") == "product.template":
+            return reference
+        return False
 
     def _get_external_id(self, record):
         if not record:
@@ -185,25 +262,60 @@ class QcExportExcelWizard(models.TransientModel):
         xmlids = record.get_external_id()
         return xmlids.get(record.id, "")
 
+    def _clear_template_rows(self, sheet):
+        if sheet.max_row and sheet.max_row > 1:
+            sheet.delete_rows(2, sheet.max_row - 1)
+
     def _get_template_headers(self):
-        return [
-            "product_template_default_code",
-            "product_template_name",
-            "test_code",
-            "test_name",
-            "test_type",
-            "test_category_xmlid",
-            "fill_correct_values",
-            "trigger_name",
-            "trigger_timing",
-            "question_sequence",
-            "question_code",
-            "question_name",
-            "question_type",
-            "question_notes",
-            "uom_xmlid",
-            "min_value",
-            "max_value",
-            "qualitative_value_name",
-            "qualitative_value_ok",
-        ]
+        workbook = self._load_template_workbook(read_only=True)
+        try:
+            return self._read_template_headers(workbook.active)
+        finally:
+            workbook.close()
+
+    def _load_template_workbook(self, read_only=False):
+        if openpyxl is None:
+            raise UserError(
+                _(
+                    "The python package 'openpyxl' is required to load the Excel "
+                    "template. Please install it on the server environment."
+                )
+            )
+        template_path = self._get_template_path()
+        try:
+            return openpyxl.load_workbook(template_path, read_only=read_only)
+        except Exception as exc:
+            raise UserError(
+                _(
+                    "The quality control Excel template could not be loaded. "
+                    "Please reinstall the module or restore the original template."
+                )
+            ) from exc
+
+    def _read_template_headers(self, sheet):
+        try:
+            first_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
+        except StopIteration as exc:
+            raise UserError(
+                _(
+                    "The quality control Excel template is missing the header "
+                    "row. Please reinstall the module or restore the original "
+                    "template."
+                )
+            ) from exc
+        return [value or "" for value in first_row]
+
+    def _get_template_path(self):
+        template_path = get_resource_path(
+            "quality_control_oca",
+            "static/xlsx",
+            "qc_product_questions_template.xlsx",
+        )
+        if not template_path:
+            raise UserError(
+                _(
+                    "The quality control Excel template could not be located in "
+                    "the module resources."
+                )
+            )
+        return template_path

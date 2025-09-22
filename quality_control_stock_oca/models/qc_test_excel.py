@@ -1,8 +1,9 @@
 """Excel import/export helpers for quality control tests."""
 
-from io import BytesIO
+import base64
+from collections import defaultdict
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 
 from odoo import api, models
 
@@ -44,6 +45,9 @@ class QcTest(models.Model):
         for name, field in Question._fields.items():
             if field.type in ("many2many", "many2one") and "value" in name:
                 return name
+        for name, field in Question._fields.items():
+            if field.type == "one2many" and "value" in name:
+                return name
         return None
 
     @api.model
@@ -72,170 +76,194 @@ class QcTest(models.Model):
         return fields
 
     def export_to_excel(self, file_path):
-        """Export tests and their questions to ``file_path``.
+        """Export tests to ``file_path`` using the shared template wizard."""
 
-        The workbook contains two sheets:
-
-        * ``tests`` – fields returned by :meth:`_excel_fields`
-        * ``questions`` – each question linked to its test by name
-        """
-
-        wb = Workbook()
-        ws_tests = wb.active
-        ws_tests.title = "tests"
-        fields = self._excel_fields()
-        ws_tests.append(fields)
-        for test in self:
-            ws_tests.append([getattr(test, field) for field in fields])
-
-        ws_questions = wb.create_sheet("questions")
-        qual_field = self._qualitative_field()
-        headers = [
-            "test_name",
-            "name",
-            "type",
-            "min_value",
-            "max_value",
-            "uom_id/id",
-            "sequence",
-            "notes",
-        ]
-        if qual_field:
-            headers.append(f"{qual_field}/name")
-        ws_questions.append(headers)
-
-        ans_field = self._answer_field()
-        ans_fields = self._answer_fields()
-
-        q_field = self._question_field()
-        for test in self:
-            for question in getattr(test, q_field, []):
-                row = [
-                    test.name,
-                    getattr(question, "name", ""),
-                    getattr(question, "type", ""),
-                    getattr(question, "min_value", ""),
-                    getattr(question, "max_value", ""),
-                    getattr(question, "uom_id", False) and question.uom_id.id or "",
-                    getattr(question, "sequence", ""),
-                    getattr(question, "notes", ""),
-                ]
-                if qual_field:
-                    value = getattr(question, qual_field)
-                    names = value.mapped("name") if value else []
-                    row.append(",".join(names))
-                ws_questions.append(row)
-
-        if ans_field and ans_fields:
-            ws_answers = wb.create_sheet("answers")
-            ws_answers.append(["test_name", "question_name", *ans_fields])
-            for test in self:
-                for question in getattr(test, q_field, []):
-                    for answer in getattr(question, ans_field, []):
-                        ws_answers.append(
-                            [
-                                test.name,
-                                getattr(question, "name", ""),
-                                *[getattr(answer, f, "") for f in ans_fields],
-                            ]
-                        )
-
-        wb.save(file_path)
+        wizard = (
+            self.env["qc.export.excel.wizard"].with_context(
+                active_ids=self.ids, active_model="qc.test"
+            )
+        ).create({})
+        wizard.action_export()
+        if not wizard.data_file:
+            return
+        with open(file_path, "wb") as output:
+            output.write(base64.b64decode(wizard.data_file))
 
     @api.model
     def import_from_excel(self, file_path):  # noqa: C901
         """Create tests and questions from ``file_path``."""
 
-        with open(file_path, "rb") as f:
-            wb = load_workbook(filename=BytesIO(f.read()))
-        ws = wb.active
-        rows = list(ws.iter_rows(values_only=True))
+        workbook = load_workbook(filename=file_path)
+        try:
+            sheet = workbook.active
+            rows = list(sheet.iter_rows(values_only=True))
+        finally:
+            workbook.close()
         if not rows:
             return self
-        headers = [str(h) for h in rows[0]]
-        tests = {}
-        for row in rows[1:]:
-            values = dict(zip(headers, row, strict=False))
-            values = {k: v for k, v in values.items() if k}
-            test = self.create(values)
-            tests[test.name] = test
+
+        headers = [str(header or "").strip() for header in rows[0]]
+        header_index = {name: index for index, name in enumerate(headers) if name}
+        if not header_index:
+            return self
+
+        def get_value(container, *names):
+            for name in names:
+                if name in container and container[name] not in (None, ""):
+                    return container[name]
+            for name in names:
+                if name in container:
+                    return container[name]
+            return None
+
         q_field = self._question_field()
+        q_field_def = self._fields[q_field]
+        question_model = self.env[q_field_def.comodel_name]
+        question_inverse = q_field_def.inverse_name
+
         qual_field = self._qualitative_field()
-        Question = self.env["qc.test.question"]
-        qual_type = qual_field and Question._fields[qual_field].type or None
-        ans_field = self._answer_field()
-        ans_fields = self._answer_fields()
-        Answer = None
-        if ans_field:
-            Answer = self.env[Question._fields[ans_field].comodel_name]
-        if "questions" in wb.sheetnames:
-            q_rows = list(wb["questions"].iter_rows(values_only=True))
-            if q_rows:
-                q_headers = [str(h) for h in q_rows[0]]
-                for row in q_rows[1:]:
-                    q_vals = dict(zip(q_headers, row, strict=False))
-                    test_name = q_vals.get("test_name")
-                    if test_name and test_name in tests:
-                        vals = {
-                            "name": q_vals.get("name"),
-                            "type": q_vals.get("type"),
-                            "min_value": q_vals.get("min_value"),
-                            "max_value": q_vals.get("max_value"),
-                            "sequence": q_vals.get("sequence"),
-                            "notes": q_vals.get("notes"),
-                        }
-                        uom = q_vals.get("uom_id/id")
-                        if uom:
-                            try:
-                                vals["uom_id"] = int(uom)
-                            except (ValueError, TypeError):
-                                vals["uom_id"] = False
-                        if qual_field:
-                            qual = q_vals.get(f"{qual_field}/name")
-                            if qual:
-                                names = [x.strip() for x in str(qual).split(",") if x]
-                                rel_model = Question._fields[qual_field].comodel_name
-                                records = self.env[rel_model].search(
-                                    [("name", "in", names)]
-                                )
-                                if qual_type == "many2many":
-                                    vals[qual_field] = [(6, 0, records.ids)]
-                                elif qual_type == "many2one":
-                                    vals[qual_field] = (
-                                        records[:1].id if records else False
-                                    )
-                        question = None
-                        if vals.get("name"):
-                            tests[test_name].write({q_field: [(0, 0, vals)]})
-                            question = getattr(tests[test_name], q_field)[-1]
-                        if question and ans_field and ans_fields:
-                            # store name for lookup when importing answers
-                            question._import_name = q_vals.get("name")
-        if ans_field and "answers" in wb.sheetnames:
-            a_rows = list(wb["answers"].iter_rows(values_only=True))
-            if a_rows:
-                a_headers = [str(h) for h in a_rows[0]]
-                rel_field = None
-                for fname, field in Answer._fields.items():
-                    if (
-                        field.type == "many2one"
-                        and field.comodel_name == Question._name
-                    ):
-                        rel_field = fname
-                        break
-                for row in a_rows[1:]:
-                    a_vals = dict(zip(a_headers, row, strict=False))
-                    test_name = a_vals.get("test_name")
-                    q_name = a_vals.get("question_name")
-                    if test_name in tests:
-                        test = tests[test_name]
-                        question = getattr(test, q_field).filtered(
-                            lambda q, q_name=q_name: getattr(q, "_import_name", q.name)
-                            == q_name
-                        )[:1]
-                        if question:
-                            vals = {f: a_vals.get(f) for f in ans_fields}
-                            if rel_field:
-                                vals[rel_field] = question.id
-                            Answer.create(vals)
+        value_model = None
+        value_inverse = None
+        qual_field_def = None
+        if qual_field and qual_field in question_model._fields:
+            qual_field_def = question_model._fields[qual_field]
+            if qual_field_def.type == "one2many":
+                value_model = self.env[qual_field_def.comodel_name]
+                value_inverse = qual_field_def.inverse_name
+
+        tests = {}
+        questions = {}
+        created_values = defaultdict(set)
+
+        def to_bool(value):
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                return value.strip().lower() in {"1", "true", "yes", "y"}
+            if isinstance(value, (int, float)):
+                return bool(value)
+            return False
+
+        def to_float(value):
+            if value in (None, ""):
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            try:
+                return float(str(value))
+            except (TypeError, ValueError):
+                return None
+
+        def resolve_xmlid(xmlid):
+            if not xmlid:
+                return None
+            try:
+                return self.env.ref(str(xmlid))
+            except (ValueError, TypeError):
+                return None
+
+        for raw in rows[1:]:
+            if not raw or not any(raw):
+                continue
+
+            data = {
+                name: raw[index] if index < len(raw) else None
+                for name, index in header_index.items()
+            }
+
+            test_key = get_value(data, "code", "test_code") or get_value(
+                data, "name", "test_name"
+            )
+            if not test_key:
+                continue
+
+            test = tests.get(test_key)
+            if not test:
+                category = resolve_xmlid(get_value(data, "category/id", "test_category_xmlid"))
+                test_type = get_value(data, "type", "test_type") or "generic"
+                if isinstance(test_type, str):
+                    test_type = test_type.strip() or "generic"
+                test_vals = {
+                    "name": get_value(data, "name", "test_name") or test_key,
+                    "code": get_value(data, "code", "test_code") or False,
+                    "type": test_type,
+                    "fill_correct_values": to_bool(data.get("fill_correct_values")),
+                }
+                if category:
+                    test_vals["category"] = category.id
+                test = self.create(test_vals)
+                tests[test_key] = test
+
+            question_code = get_value(data, "test_lines/code", "question_code") or ""
+            question_name = get_value(data, "test_lines/name", "question_name") or ""
+            question_sequence = (
+                get_value(data, "test_lines/sequence", "question_sequence") or 0
+            )
+            question_key = (
+                test.id,
+                question_code,
+                question_name,
+                question_sequence,
+            )
+
+            question = questions.get(question_key)
+            if not question:
+                q_type = get_value(data, "test_lines/type", "question_type") or "qualitative"
+                if isinstance(q_type, str):
+                    q_type = q_type.strip().lower() or "qualitative"
+                q_vals = {
+                    question_inverse: test.id,
+                    "name": question_name or question_code or "Question",
+                    "type": q_type,
+                }
+                if question_code:
+                    q_vals["code"] = question_code
+                notes = get_value(data, "test_lines/notes", "question_notes")
+                if notes not in (None, ""):
+                    q_vals["notes"] = notes
+                if question_sequence not in (None, ""):
+                    try:
+                        q_vals["sequence"] = int(question_sequence)
+                    except (TypeError, ValueError):
+                        q_vals["sequence"] = 0
+                if q_type == "quantitative":
+                    min_value = to_float(
+                        get_value(data, "test_lines/min_value", "min_value")
+                    )
+                    max_value = to_float(
+                        get_value(data, "test_lines/max_value", "max_value")
+                    )
+                    if min_value is not None:
+                        q_vals["min_value"] = min_value
+                    if max_value is not None:
+                        q_vals["max_value"] = max_value
+                    uom = resolve_xmlid(get_value(data, "test_lines/uom_id/id", "uom_xmlid"))
+                    if uom:
+                        q_vals["uom_id"] = uom.id
+                question = question_model.create(q_vals)
+                questions[question_key] = question
+            else:
+                q_type = question.type
+
+            if value_model and q_type == "qualitative" and value_inverse:
+                value_name = get_value(
+                    data, "test_lines/ql_values/name", "qualitative_value_name"
+                )
+                if value_name:
+                    value_ok = to_bool(
+                        get_value(
+                            data,
+                            "test_lines/ql_values/ok",
+                            "qualitative_value_ok",
+                        )
+                    )
+                    value_key = (value_name, value_ok)
+                    if value_key in created_values[question.id]:
+                        continue
+                    value_vals = {value_inverse: question.id, "name": value_name}
+                    if "ok" in value_model._fields:
+                        value_vals["ok"] = value_ok
+                    value_model.create(value_vals)
+                    created_values[question.id].add(value_key)
+
         return self
