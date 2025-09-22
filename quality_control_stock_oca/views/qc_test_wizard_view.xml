@@ -35,10 +35,9 @@
         <field name="binding_model_id" ref="quality_control_oca.model_qc_test" />
         <field name="binding_view_types">list,form</field>
         <field name="state">code</field>
-        <field
-            name="code"
-        ><![CDATA[
-action = env.ref("quality_control_stock_oca.action_qc_test_export_wizard").read()[0]
+        <field name="code"><![CDATA[
+context = dict(env.context)
+action = env["qc.test"].with_context(context).action_open_export_wizard()
         ]]></field>
     </record>
 

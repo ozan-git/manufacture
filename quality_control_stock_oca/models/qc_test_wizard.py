@@ -15,19 +15,22 @@ class QcTestExportWizard(models.TransientModel):
 
     def action_export(self):
         self.ensure_one()
-        tests = self.env["qc.test"].browse(self.env.context.get("active_ids", []))
-        with NamedTemporaryFile(suffix=".xlsx") as tmp:
-            tests.export_to_excel(tmp.name)
-            tmp.seek(0)
-            self.file_data = base64.b64encode(tmp.read())
-        return {
-            "type": "ir.actions.act_url",
-            "url": (
-                f"/web/content/?model={self._name}&id={self.id}&field=file_data"
-                f"&download=true&filename={self.file_name}"
-            ),
-            "target": "self",
-        }
+        context = dict(self.env.context)
+        active_ids = context.get("active_ids")
+        if not active_ids and context.get("active_id"):
+            active_ids = [context["active_id"]]
+        wizard_ctx = dict(context, active_ids=active_ids, active_model="qc.test")
+        export_wizard = (
+            self.env["qc.export.excel.wizard"].with_context(wizard_ctx).create({})
+        )
+        action = export_wizard.action_export()
+        self.write(
+            {
+                "file_data": export_wizard.data_file,
+                "file_name": export_wizard.filename or self.file_name,
+            }
+        )
+        return action
 
 
 class QcTestImportWizard(models.TransientModel):
