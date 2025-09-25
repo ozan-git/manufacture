@@ -79,7 +79,7 @@ class QcTest(models.Model):
 
     @api.model
     def get_import_templates(self):
-        """Expose the Excel template in the generic import view."""
+        """Expose the Excel template both in the wizard and generic importer."""
 
         templates = list(super().get_import_templates())
         template_url = "/quality_control_oca/static/xlsx/qc_product_questions_template.xlsx"
@@ -186,4 +186,3 @@ class QcTestQuestionValue(models.Model):
         string="Correct answer?",
         help="When this field is marked, the answer is considered correct.",
     )
-

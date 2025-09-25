@@ -22,6 +22,24 @@ You can always grab the latest version of the spreadsheet from the
 ``Import Tests from Excel`` wizard. Click *Download template* to retrieve the
 file alongside the static link above.
 
+Using The Template
+------------------
+
+There are two supported ways to load data prepared with this workbook:
+
+#. In the Odoo UI, open *Quality Control → Tests* and use the *Import from
+   Excel* button (or the generic *Import* action). Both show a link to download
+   this template. The dedicated wizard validates the file, shows a preview, and
+   applies the changes in create/update mode without extra mapping.
+#. From custom scripts, call ``env['qc.test'].import_from_excel('/path/to/file.xlsx')``.
+   The helper reuses the same loader as the wizard, so every path accepts the
+   exact same headers and validations. Legacy column names from older versions
+   are still recognized.
+
+The generic import action available from list views is not aware of the nested
+column names used by this template. Stick to the dedicated wizard or helper
+above to avoid field-mapping issues.
+
 Exporting Existing Tests
 ------------------------
 

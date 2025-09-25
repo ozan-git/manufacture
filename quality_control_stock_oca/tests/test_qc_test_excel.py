@@ -2,14 +2,25 @@ from tempfile import NamedTemporaryFile
 
 from odoo.tests.common import TransactionCase
 
+try:  # pragma: no cover - optional dependency guard
+    import openpyxl  # noqa: F401
+except ImportError:  # pragma: no cover - handled at runtime
+    openpyxl = None
+
 
 class TestQcTestExcel(TransactionCase):
     def test_export_import_roundtrip(self):
+        if openpyxl is None:
+            self.skipTest("openpyxl is not available")
         Test = self.env["qc.test"]
         Question = self.env["qc.test.question"]
         Value = self.env["qc.test.question.value"]
         category = self.env.ref("quality_control_oca.qc_test_template_category_generic")
         uom = self.env.ref("uom.product_uom_unit")
+        product_template = self.env["product.template"].create(
+            {"name": "Excel Product", "default_code": "EXCEL-PT"}
+        )
+        trigger = self.env["qc.trigger"].create({"name": "Manufacturing Order"})
 
         test = Test.create(
             {
@@ -41,6 +52,14 @@ class TestQcTestExcel(TransactionCase):
                 "min_value": 1.0,
                 "max_value": 2.0,
                 "uom_id": uom.id,
+            }
+        )
+        self.env["qc.trigger.product_template_line"].create(
+            {
+                "test": test.id,
+                "trigger": trigger.id,
+                "product_template": product_template.id,
+                "timing": "before",
             }
         )
 
@@ -79,7 +98,20 @@ class TestQcTestExcel(TransactionCase):
         self.assertEqual(quantitative_question.min_value, 1.0)
         self.assertEqual(quantitative_question.max_value, 2.0)
 
+        trigger_lines = self.env["qc.trigger.product_template_line"].search(
+            [
+                ("test", "=", imported.id),
+                ("product_template", "=", product_template.id),
+            ]
+        )
+        self.assertEqual(len(trigger_lines), 1)
+        imported_trigger = trigger_lines[0]
+        self.assertEqual(imported_trigger.trigger.name, trigger.name)
+        self.assertEqual(imported_trigger.timing, "before")
+
     def test_export_import_wizards(self):
+        if openpyxl is None:
+            self.skipTest("openpyxl is not available")
         Test = self.env["qc.test"]
         Question = self.env["qc.test.question"]
         Value = self.env["qc.test.question.value"]

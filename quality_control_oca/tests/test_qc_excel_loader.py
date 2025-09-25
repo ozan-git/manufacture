@@ -34,6 +34,29 @@ HEADERS = [
 ]
 
 
+LEGACY_HEADERS = [
+    "product_template_default_code",
+    "product_template_name",
+    "test_code",
+    "test_name",
+    "test_type",
+    "test_category_xmlid",
+    "fill_correct_values",
+    "trigger_name",
+    "trigger_timing",
+    "question_sequence",
+    "question_code",
+    "question_name",
+    "question_type",
+    "question_notes",
+    "uom_xmlid",
+    "min_value",
+    "max_value",
+    "qualitative_value_name",
+    "qualitative_value_ok",
+]
+
+
 class TestQcExcelLoader(TransactionCase):
     def setUp(self):
         super().setUp()
@@ -44,10 +67,10 @@ class TestQcExcelLoader(TransactionCase):
             {"name": "Sterilized Filter", "default_code": "FERT-001"}
         )
 
-    def _build_workbook(self, rows):
+    def _build_workbook(self, rows, headers=HEADERS):
         workbook = Workbook()
         sheet = workbook.active
-        sheet.append(HEADERS)
+        sheet.append(headers)
         for row in rows:
             sheet.append(row)
         stream = io.BytesIO()
@@ -193,3 +216,17 @@ class TestQcExcelLoader(TransactionCase):
             ]
         )
         self.assertEqual(len(trigger_lines), 1)
+
+    def test_import_legacy_headers(self):
+        data_file = self._build_workbook(
+            [
+                self._quantitative_row(fill=True),
+                self._qualitative_row("Clear", True, fill=True),
+            ],
+            headers=LEGACY_HEADERS,
+        )
+        load_result = self.loader.load_from_binary(data_file, "legacy.xlsx")
+        self.assertFalse(load_result["errors"])
+        self.assertEqual(load_result["headers"], HEADERS)
+        summary = self.loader.import_rows(load_result["rows"], "create_update")
+        self.assertEqual(summary["tests_created"], 1)
