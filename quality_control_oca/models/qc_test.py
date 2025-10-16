@@ -95,11 +95,12 @@ class QcTest(models.Model):
     def _auto_init(self):
         """Ensure legacy databases get the new ``code`` column and index."""
 
+        # Call super first so the base table exists on fresh installations.
+        res = super()._auto_init()
         self._cr.execute(
             'ALTER TABLE "%s" ADD COLUMN IF NOT EXISTS "code" varchar'
             % self._table
         )
-        res = super()._auto_init()
         self._cr.execute(
             'CREATE INDEX IF NOT EXISTS "%s_code_index" ON "%s" ("code")'
             % (self._table, self._table)
@@ -164,11 +165,11 @@ class QcTestQuestion(models.Model):
     def _auto_init(self):
         """Ensure legacy databases get the new ``code`` column and index."""
 
+        res = super()._auto_init()
         self._cr.execute(
             'ALTER TABLE "%s" ADD COLUMN IF NOT EXISTS "code" varchar'
             % self._table
         )
-        res = super()._auto_init()
         self._cr.execute(
             'CREATE INDEX IF NOT EXISTS "%s_code_index" ON "%s" ("code")'
             % (self._table, self._table)
