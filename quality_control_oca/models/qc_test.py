@@ -5,7 +5,7 @@
 # Copyright 2017 Simone Rubino - Agile Business Group
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
-from odoo import api, exceptions, fields, models
+from odoo import _, api, exceptions, fields, models
 
 
 class QcTest(models.Model):
@@ -26,12 +26,18 @@ class QcTest(models.Model):
             self.object_id = False
 
     active = fields.Boolean(default=True)
+    code = fields.Char(index=True, help="Unique identifier used for imports and integrations.")
     name = fields.Char(required=True, translate=True)
     test_lines = fields.One2many(
         comodel_name="qc.test.question",
         inverse_name="test",
         string="Questions",
         copy=True,
+    )
+    trigger_product_template_line_ids = fields.One2many(
+        comodel_name="qc.trigger.product_template_line",
+        inverse_name="test",
+        string="Product Template Trigger Lines",
     )
     object_id = fields.Reference(
         string="Reference object",
@@ -48,6 +54,58 @@ class QcTest(models.Model):
         comodel_name="res.company",
         default=lambda self: self.env.company,
     )
+
+    @api.model
+    def action_open_export_wizard(self):
+        """Open the export wizard without requiring XML-ID resolution at load."""
+
+        action = self.env["ir.actions.actions"]._for_xml_id(
+            "quality_control_oca.action_qc_export_excel_wizard"
+        )
+        context = dict(self.env.context)
+        active_ids = context.get("active_ids") or self.ids
+        if not isinstance(active_ids, list):
+            active_ids = [active_ids]
+        context.update(
+            {
+                "active_model": "qc.test",
+                "active_ids": active_ids,
+                "active_id": active_ids[0] if active_ids else False,
+                "default_test_ids": [(6, 0, active_ids)],
+            }
+        )
+        action["context"] = context
+        return action
+
+    @api.model
+    def get_import_templates(self):
+        """Expose the Excel template both in the wizard and generic importer."""
+
+        templates = list(super().get_import_templates())
+        template_url = "/quality_control_oca/static/xlsx/qc_product_questions_template.xlsx"
+        if not any(template.get("template") == template_url for template in templates):
+            templates.append(
+                {
+                    "label": _("Quality tests Excel template"),
+                    "template": template_url,
+                }
+            )
+        return templates
+
+    def _auto_init(self):
+        """Ensure legacy databases get the new ``code`` column and index."""
+
+        # Call super first so the base table exists on fresh installations.
+        res = super()._auto_init()
+        self._cr.execute(
+            'ALTER TABLE "%s" ADD COLUMN IF NOT EXISTS "code" varchar'
+            % self._table
+        )
+        self._cr.execute(
+            'CREATE INDEX IF NOT EXISTS "%s_code_index" ON "%s" ("code")'
+            % (self._table, self._table)
+        )
+        return res
 
 
 class QcTestQuestion(models.Model):
@@ -86,6 +144,7 @@ class QcTestQuestion(models.Model):
                 )
 
     sequence = fields.Integer(required=True, default="10")
+    code = fields.Char(index=True, help="Unique identifier used for imports and integrations.")
     test = fields.Many2one(comodel_name="qc.test")
     name = fields.Char(required=True, translate=True)
     type = fields.Selection(
@@ -102,6 +161,20 @@ class QcTestQuestion(models.Model):
     min_value = fields.Float(string="Min", digits="Quality Control")
     max_value = fields.Float(string="Max", digits="Quality Control")
     uom_id = fields.Many2one(comodel_name="uom.uom", string="Uom")
+
+    def _auto_init(self):
+        """Ensure legacy databases get the new ``code`` column and index."""
+
+        res = super()._auto_init()
+        self._cr.execute(
+            'ALTER TABLE "%s" ADD COLUMN IF NOT EXISTS "code" varchar'
+            % self._table
+        )
+        self._cr.execute(
+            'CREATE INDEX IF NOT EXISTS "%s_code_index" ON "%s" ("code")'
+            % (self._table, self._table)
+        )
+        return res
 
 
 class QcTestQuestionValue(models.Model):

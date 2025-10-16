@@ -148,5 +148,5 @@ msgstr "Transfer"
 #. module: quality_control_stock_oca
 #: model_terms:ir.ui.view,arch_db:quality_control_stock_oca.stock_lot_qc_view
 #: model_terms:ir.ui.view,arch_db:quality_control_stock_oca.stock_picking_qc_view
-msgid "inspections"
-msgstr "kontroller"
+msgid "Inspections"
+msgstr "Kontroller"

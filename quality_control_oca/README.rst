@@ -67,6 +67,13 @@ The complete inspection workflow is:
 
    -> Failure (Pending approval) -> Approved
 
+Usage
+=====
+
+Refer to the `Excel import documentation <readme/import_excel_template.rst>`_
+for column descriptions, sample data, and the download link of the prepared
+template used by the import wizard.
+
 Known issues / Roadmap
 ======================
 

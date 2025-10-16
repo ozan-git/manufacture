@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_qc_export_excel_wizard" model="ir.ui.view">
+        <field name="name">qc.export.excel.wizard.form</field>
+        <field name="model">qc.export.excel.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Export Quality Tests">
+                <group>
+                    <field
+                        name="test_ids"
+                        widget="many2many_tags"
+                        options="{'no_create': True}"
+                    />
+                </group>
+                <footer>
+                    <button
+                        name="action_export"
+                        type="object"
+                        string="Export"
+                        class="btn-primary"
+                    />
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_qc_export_excel_wizard" model="ir.actions.act_window">
+        <field name="name">Export Tests to Excel</field>
+        <field name="res_model">qc.export.excel.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_qc_export_excel_wizard"/>
+        <field name="target">new</field>
+        <field name="context">{'default_test_ids': [(6, 0, active_ids)]}</field>
+    </record>
+
+    <record id="action_qc_export_excel_server" model="ir.actions.server">
+        <field name="name">Export Tests to Excel</field>
+        <field name="model_id" ref="quality_control_oca.model_qc_test"/>
+        <field name="binding_model_id" ref="quality_control_oca.model_qc_test"/>
+        <field name="binding_type">action</field>
+        <field name="state">code</field>
+        <field name="code">
+action = env.ref('quality_control_oca.action_qc_export_excel_wizard').read()[0]
+action['context'] = dict(env.context)
+        </field>
+    </record>
+</odoo>

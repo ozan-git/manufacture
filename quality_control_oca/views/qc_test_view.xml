@@ -52,6 +52,20 @@
         <field name="model">qc.test</field>
         <field name="arch" type="xml">
             <list>
+                <header>
+                    <button
+                        name="%(quality_control_oca.action_qc_import_excel_wizard)d"
+                        type="action"
+                        string="Import from Excel"
+                        class="btn-primary"
+                    />
+                    <button
+                        name="action_open_export_wizard"
+                        type="object"
+                        string="Export to Excel"
+                        class="btn-secondary"
+                    />
+                </header>
                 <field name="name" />
                 <field name="category" />
                 <field name="type" />

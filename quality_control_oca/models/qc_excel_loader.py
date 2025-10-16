@@ -1,0 +1,1084 @@
+# License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
+
+import base64
+import io
+from collections import OrderedDict
+
+from odoo import _, models
+from odoo.exceptions import UserError
+
+try:  # pragma: no cover - import guarded for optional dependency
+    import openpyxl
+except ImportError:  # pragma: no cover - handled in runtime
+    openpyxl = None
+
+
+class QcExcelLoader(models.AbstractModel):
+    _name = "qc.excel.loader"
+    _description = "Excel loader and importer for quality tests"
+
+    _VALID_TEST_TYPES = {"generic", "related"}
+    _VALID_QUESTION_TYPES = {"qualitative", "quantitative"}
+    _VALID_TRIGGER_TIMINGS = {"before", "after", "plan_ahead"}
+    _BOOL_TRUE = {"1", "true", "yes", "y", "ok", "t"}
+    _HEADER_ALIASES = {
+        "product_template_default_code": "trigger_product_template_line_ids/product_template/default_code",
+        "product_template_name": "trigger_product_template_line_ids/product_template/name",
+        "test_code": "code",
+        "test_name": "name",
+        "test_type": "type",
+        "test_category_xmlid": "category/id",
+        "trigger_name": "trigger_product_template_line_ids/trigger/name",
+        "trigger_timing": "trigger_product_template_line_ids/timing",
+        "question_sequence": "test_lines/sequence",
+        "question_code": "test_lines/code",
+        "question_name": "test_lines/name",
+        "question_type": "test_lines/type",
+        "question_notes": "test_lines/notes",
+        "uom_xmlid": "test_lines/uom_id/id",
+        "min_value": "test_lines/min_value",
+        "max_value": "test_lines/max_value",
+        "qualitative_value_name": "test_lines/ql_values/name",
+        "qualitative_value_ok": "test_lines/ql_values/ok",
+    }
+
+    _MANDATORY_FIELDS = {
+        "code",
+        "name",
+        "type",
+        "test_lines/sequence",
+        "test_lines/code",
+        "test_lines/name",
+        "test_lines/type",
+    }
+
+    def load_from_binary(self, data_file, filename=None):
+        """Decode and validate rows coming from the Excel template.
+
+        :return: dict(headers=list(str), rows=list(dict), errors=list(dict))
+        """
+
+        if openpyxl is None:
+            raise UserError(
+                _(
+                    "The python package 'openpyxl' is required to import Excel "
+                    "files. Please install it on the server environment."
+                )
+            )
+
+        if not data_file:
+            raise UserError(_("Please upload an Excel file."))
+
+        decoded = self._decode_file(data_file, filename)
+        try:
+            workbook = openpyxl.load_workbook(
+                io.BytesIO(decoded), data_only=True, read_only=True
+            )
+        except Exception as err:  # pragma: no cover - library level errors
+            raise UserError(
+                _("The file %s is not a valid XLSX workbook: %s")
+                % (filename or _("(unnamed)"), err)
+            ) from err
+
+        sheet = workbook.active
+        headers = self._canonicalize_headers(self._extract_headers(sheet))
+        header_index = {name: idx for idx, name in enumerate(headers) if name}
+        errors = []
+        rows = []
+        for excel_row, cells in enumerate(
+            sheet.iter_rows(min_row=2, values_only=True), start=2
+        ):
+            if self._is_empty_row(cells):
+                continue
+            raw = {}
+            for idx, value in enumerate(cells):
+                if idx >= len(headers):
+                    continue
+                column_name = headers[idx]
+                if not column_name:
+                    continue
+                raw[column_name] = self._normalize_cell(value)
+            normalized, row_errors, row_warnings = self.validate_row(
+                raw, excel_row, header_index
+            )
+            row_messages = []
+            if row_errors:
+                errors.extend(row_errors)
+                row_messages.extend(row_errors)
+            if row_warnings:
+                row_messages.extend(row_warnings)
+            status = "error" if row_errors else (
+                "warning" if row_warnings else "success"
+            )
+            rows.append(
+                {
+                    "row_index": excel_row,
+                    "raw": raw,
+                    "data": normalized,
+                    "messages": row_messages,
+                    "status": status,
+                }
+            )
+        return {"headers": headers, "rows": rows, "errors": errors}
+
+    def _canonicalize_headers(self, headers):
+        canonical = []
+        for header in headers:
+            header = header or ""
+            canonical_name = self._HEADER_ALIASES.get(header, header)
+            canonical.append(canonical_name)
+        return canonical
+
+    def validate_row(self, raw_row, row_index, header_index):
+        """Validate a row dict generated by :meth:`load_from_binary`.
+
+        :return: tuple(normalized_row, error_list, warning_list)
+        """
+
+        errors = []
+        warnings = []
+        normalized = {}
+        for field in self._MANDATORY_FIELDS:
+            if not raw_row.get(field):
+                errors.append(
+                    self._error(
+                        row_index,
+                        field,
+                        _("is required."),
+                        "missing_field",
+                    )
+                )
+        test_type = (raw_row.get("type") or "").lower()
+        if test_type and test_type not in self._VALID_TEST_TYPES:
+            errors.append(
+                self._error(
+                    row_index,
+                    "type",
+                    _("must be one of: %s")
+                    % ", ".join(sorted(self._VALID_TEST_TYPES)),
+                    "invalid_test_type",
+                )
+            )
+        question_type = (raw_row.get("test_lines/type") or "").lower()
+        if question_type and question_type not in self._VALID_QUESTION_TYPES:
+            errors.append(
+                self._error(
+                    row_index,
+                    "test_lines/type",
+                    _("must be either 'qualitative' or 'quantitative'."),
+                    "invalid_question_type",
+                )
+            )
+
+        trigger_timing = (
+            raw_row.get("trigger_product_template_line_ids/timing") or "after"
+        ).lower()
+        if trigger_timing and trigger_timing not in self._VALID_TRIGGER_TIMINGS:
+            errors.append(
+                self._error(
+                    row_index,
+                    "trigger_product_template_line_ids/timing",
+                    _("must be one of: %s")
+                    % ", ".join(sorted(self._VALID_TRIGGER_TIMINGS)),
+                    "invalid_trigger_timing",
+                )
+            )
+
+        normalized["test_code"] = (raw_row.get("code") or "").strip()
+        normalized["test_name"] = (raw_row.get("name") or "").strip()
+        normalized["test_type"] = test_type or "generic"
+        normalized["fill_correct_values"] = self._to_bool(
+            raw_row.get("fill_correct_values")
+        )
+        normalized["trigger_name"] = (
+            raw_row.get("trigger_product_template_line_ids/trigger/name") or ""
+        ).strip()
+        normalized["trigger_timing"] = trigger_timing or "after"
+        if normalized["product_template"] and not normalized["trigger_name"]:
+            warnings.append(
+                self._warning(
+                    row_index,
+                    "trigger_product_template_line_ids/trigger/name",
+                    _("No trigger name provided; a default value will be used."),
+                    "missing_trigger_name",
+                )
+            )
+        normalized["question_code"] = (
+            raw_row.get("test_lines/code") or ""
+        ).strip()
+        normalized["question_name"] = (
+            raw_row.get("test_lines/name") or ""
+        ).strip()
+        normalized["question_type"] = question_type or "qualitative"
+        normalized["question_sequence"] = self._to_int(
+            raw_row.get("test_lines/sequence"),
+            row_index,
+            "test_lines/sequence",
+            errors,
+        )
+        normalized["question_notes"] = (
+            raw_row.get("test_lines/notes") or ""
+        )
+        normalized["question_notes"] = normalized["question_notes"].strip()
+        normalized["qualitative_value_name"] = (
+            (raw_row.get("test_lines/ql_values/name") or "").strip()
+        )
+        normalized["qualitative_value_ok"] = self._to_bool(
+            raw_row.get("test_lines/ql_values/ok")
+        )
+
+        test_translations, test_warnings = self._extract_translations(
+            raw_row,
+            ["test_name_", "test_"],
+            row_index,
+        )
+        normalized["test_translations"] = test_translations
+        warnings.extend(test_warnings)
+
+        question_translations, question_warnings = self._extract_translations(
+            raw_row,
+            ["question_name_", "question_"],
+            row_index,
+        )
+        normalized["question_translations"] = question_translations
+        warnings.extend(question_warnings)
+
+        category_xmlid = raw_row.get("category/id")
+        normalized["test_category_id"] = self._resolve_xmlid(
+            category_xmlid,
+            row_index,
+            "category/id",
+            errors,
+        )
+
+        product_code = (
+            raw_row.get(
+                "trigger_product_template_line_ids/product_template/default_code"
+            )
+            or ""
+        ).strip()
+        normalized["product_template"] = self._resolve_product(
+            product_code, row_index, errors
+        )
+        if normalized["test_type"] == "related" and not normalized["product_template"]:
+            errors.append(
+                self._error(
+                    row_index,
+                    "trigger_product_template_line_ids/product_template/default_code",
+                    _("is required when the test type is set to related."),
+                    "missing_product_for_related",
+                )
+            )
+        normalized["product_template_name"] = (
+            (
+                raw_row.get(
+                    "trigger_product_template_line_ids/product_template/name"
+                )
+                or ""
+            ).strip()
+        )
+
+        uom_xmlid = raw_row.get("test_lines/uom_id/id")
+        normalized["uom_id"] = self._resolve_xmlid(
+            uom_xmlid, row_index, "test_lines/uom_id/id", errors
+        )
+
+        normalized["min_value"] = self._to_float(
+            raw_row.get("test_lines/min_value"),
+            row_index,
+            "test_lines/min_value",
+            errors,
+        )
+        normalized["max_value"] = self._to_float(
+            raw_row.get("test_lines/max_value"),
+            row_index,
+            "test_lines/max_value",
+            errors,
+        )
+
+        if normalized["question_type"] == "quantitative":
+            if normalized["min_value"] is None:
+                errors.append(
+                    self._error(
+                        row_index,
+                        "test_lines/min_value",
+                        _("is required for quantitative questions."),
+                        "missing_min_value",
+                    )
+                )
+            if normalized["max_value"] is None:
+                errors.append(
+                    self._error(
+                        row_index,
+                        "test_lines/max_value",
+                        _("is required for quantitative questions."),
+                        "missing_max_value",
+                    )
+                )
+            if normalized["uom_id"] is None:
+                errors.append(
+                    self._error(
+                        row_index,
+                        "test_lines/uom_id/id",
+                        _("must be provided for quantitative questions."),
+                        "missing_uom",
+                    )
+                )
+            if (
+                normalized["min_value"] is not None
+                and normalized["max_value"] is not None
+                and normalized["min_value"] > normalized["max_value"]
+            ):
+                errors.append(
+                    self._error(
+                        row_index,
+                        "test_lines/min_value",
+                        _("cannot be greater than 'max_value'."),
+                        "invalid_range",
+                    )
+                )
+        else:
+            if (
+                normalized["qualitative_value_name"] == ""
+                and header_index.get("test_lines/ql_values/name") is not None
+            ):
+                errors.append(
+                    self._error(
+                        row_index,
+                        "test_lines/ql_values/name",
+                        _("is required for qualitative questions."),
+                        "missing_qualitative_value",
+                    )
+                )
+
+        return normalized, errors, warnings
+
+    def group_rows(self, rows):
+        grouped = OrderedDict()
+        errors = []
+        for row in rows:
+            data = row["data"]
+            test_key = data["test_code"] or data["test_name"]
+            bucket = grouped.setdefault(
+                test_key,
+                {
+                    "test_code": data["test_code"],
+                    "test_name": data["test_name"],
+                    "test_type": data["test_type"],
+                    "fill_correct_values": data["fill_correct_values"],
+                    "test_category_id": data["test_category_id"],
+                    "test_translations": dict(data.get("test_translations") or {}),
+                    "products": OrderedDict(),
+                    "questions": OrderedDict(),
+                },
+            )
+            # Check consistency for test level fields
+            if bucket["test_name"] != data["test_name"]:
+                errors.append(
+                    self._error(
+                        row["row_index"],
+                        "test_name",
+                        _("conflicts with previous rows for the same test."),
+                        "test_name_conflict",
+                    )
+                )
+            if bucket["test_type"] != data["test_type"]:
+                errors.append(
+                    self._error(
+                        row["row_index"],
+                        "type",
+                        _("conflicts with previous rows for the same test."),
+                        "test_type_conflict",
+                    )
+                )
+            if (
+                bucket["fill_correct_values"]
+                != data["fill_correct_values"]
+            ):
+                errors.append(
+                    self._error(
+                        row["row_index"],
+                        "fill_correct_values",
+                        _("conflicts with previous rows for the same test."),
+                        "fill_correct_values_conflict",
+                    )
+                )
+            if bucket["test_category_id"] != data["test_category_id"]:
+                errors.append(
+                    self._error(
+                        row["row_index"],
+                        "category/id",
+                        _("conflicts with previous rows for the same test."),
+                        "test_category_conflict",
+                    )
+                )
+
+            for lang, value in (data.get("test_translations") or {}).items():
+                existing = bucket["test_translations"].get(lang)
+                if existing and existing != value:
+                    errors.append(
+                        self._error(
+                            row["row_index"],
+                            f"test_translation:{lang}",
+                            _(
+                                "translation for language %(lang)s conflicts with previous rows."
+                            )
+                            % {"lang": lang},
+                            "test_translation_conflict",
+                        )
+                    )
+                else:
+                    bucket["test_translations"][lang] = value
+
+            product = data["product_template"]
+            if product:
+                product_bucket = bucket["products"].setdefault(
+                    product.id,
+                    {
+                        "product": product,
+                        "trigger_name": data["trigger_name"],
+                        "trigger_timing": data["trigger_timing"],
+                    },
+                )
+                if (
+                    product_bucket["trigger_name"]
+                    and data["trigger_name"]
+                    and product_bucket["trigger_name"] != data["trigger_name"]
+                ):
+                    errors.append(
+                        self._error(
+                            row["row_index"],
+                            "trigger_product_template_line_ids/trigger/name",
+                            _(
+                                "conflicts with another row referencing the same product."
+                            ),
+                            "trigger_name_conflict",
+                        )
+                    )
+                if (
+                    product_bucket["trigger_timing"]
+                    and data["trigger_timing"]
+                    and product_bucket["trigger_timing"] != data["trigger_timing"]
+                ):
+                    errors.append(
+                        self._error(
+                            row["row_index"],
+                            "trigger_product_template_line_ids/timing",
+                            _(
+                                "conflicts with another row referencing the same product."
+                            ),
+                            "trigger_timing_conflict",
+                        )
+                    )
+                if not product_bucket["trigger_name"]:
+                    product_bucket["trigger_name"] = data["trigger_name"]
+                if not product_bucket["trigger_timing"]:
+                    product_bucket["trigger_timing"] = data["trigger_timing"]
+
+            question_key = data["question_code"] or data["question_name"]
+            question_bucket = bucket["questions"].setdefault(
+                question_key,
+                {
+                    "question_code": data["question_code"],
+                    "question_name": data["question_name"],
+                    "question_sequence": data["question_sequence"],
+                    "question_type": data["question_type"],
+                    "question_notes": data["question_notes"],
+                    "uom_id": data["uom_id"],
+                    "min_value": data["min_value"],
+                    "max_value": data["max_value"],
+                    "qualitative_values": OrderedDict(),
+                    "translations": dict(
+                        data.get("question_translations") or {}
+                    ),
+                },
+            )
+            if question_bucket["question_name"] != data["question_name"]:
+                errors.append(
+                    self._error(
+                        row["row_index"],
+                        "test_lines/name",
+                        _(
+                            "conflicts with previous rows for the same question."
+                        ),
+                        "question_name_conflict",
+                    )
+                )
+            if question_bucket["question_type"] != data["question_type"]:
+                errors.append(
+                    self._error(
+                        row["row_index"],
+                        "test_lines/type",
+                        _(
+                            "conflicts with previous rows for the same question."
+                        ),
+                        "question_type_conflict",
+                    )
+                )
+            if question_bucket["question_sequence"] != data["question_sequence"]:
+                errors.append(
+                    self._error(
+                        row["row_index"],
+                        "test_lines/sequence",
+                        _(
+                            "conflicts with previous rows for the same question."
+                        ),
+                        "question_sequence_conflict",
+                    )
+                )
+            if question_bucket["uom_id"] != data["uom_id"]:
+                errors.append(
+                    self._error(
+                        row["row_index"],
+                        "test_lines/uom_id/id",
+                        _(
+                            "conflicts with previous rows for the same question."
+                        ),
+                        "question_uom_conflict",
+                    )
+                )
+            if question_bucket["min_value"] != data["min_value"]:
+                errors.append(
+                    self._error(
+                        row["row_index"],
+                        "test_lines/min_value",
+                        _(
+                            "conflicts with previous rows for the same question."
+                        ),
+                        "question_min_conflict",
+                    )
+                )
+            if question_bucket["max_value"] != data["max_value"]:
+                errors.append(
+                    self._error(
+                        row["row_index"],
+                        "test_lines/max_value",
+                        _(
+                            "conflicts with previous rows for the same question."
+                        ),
+                        "question_max_conflict",
+                    )
+                )
+
+            for lang, value in (data.get("question_translations") or {}).items():
+                existing = question_bucket["translations"].get(lang)
+                if existing and existing != value:
+                    errors.append(
+                        self._error(
+                            row["row_index"],
+                            f"question_translation:{lang}",
+                            _(
+                                "translation for language %(lang)s conflicts with previous rows."
+                            )
+                            % {"lang": lang},
+                            "question_translation_conflict",
+                        )
+                    )
+                else:
+                    question_bucket["translations"][lang] = value
+
+            if data["question_type"] == "qualitative":
+                value_name = data["qualitative_value_name"]
+                if value_name:
+                    question_bucket["qualitative_values"].setdefault(
+                        value_name,
+                        {
+                            "name": value_name,
+                            "ok": data["qualitative_value_ok"],
+                        },
+                    )
+        for bucket in grouped.values():
+            for question_code, question in bucket["questions"].items():
+                if (
+                    question["question_type"] == "qualitative"
+                    and not question["qualitative_values"]
+                ):
+                    errors.append(
+                        self._error(
+                            0,
+                            f"question:{question_code}",
+                            _(
+                                "qualitative questions must define at least one value."
+                            ),
+                            "qualitative_values_missing",
+                        )
+                    )
+                if (
+                    question["question_type"] == "qualitative"
+                    and not any(val["ok"] for val in question["qualitative_values"].values())
+                ):
+                    errors.append(
+                        self._error(
+                            0,
+                            f"question:{question_code}",
+                            _(
+                                "qualitative questions must mark at least one value as OK."
+                            ),
+                            "qualitative_ok_missing",
+                        )
+                    )
+        return grouped, errors
+
+    def import_rows(self, rows, import_mode, allowed_status=None):
+        if import_mode not in {"create", "update", "create_update"}:
+            raise UserError(_("Unknown import mode: %s") % import_mode)
+
+        allowed_status = set(allowed_status or {"success", "warning"})
+        candidate_rows = [
+            row for row in rows if row.get("status") in allowed_status
+        ]
+        if not candidate_rows:
+            raise UserError(
+                _(
+                    "No rows match the selected status filter: %s"
+                )
+                % ", ".join(sorted(allowed_status))
+            )
+
+        grouped, grouping_errors = self.group_rows(candidate_rows)
+        if grouping_errors:
+            formatted = self.format_errors(grouping_errors)
+            raise UserError(formatted)
+
+        summary = {
+            "tests_created": 0,
+            "tests_updated": 0,
+            "questions_created": 0,
+            "questions_updated": 0,
+            "questions_deleted": 0,
+            "values_created": 0,
+            "values_updated": 0,
+            "values_deleted": 0,
+            "triggers_created": 0,
+            "triggers_updated": 0,
+        }
+
+        Test = self.env["qc.test"]
+        TriggerLine = self.env["qc.trigger.product_template_line"]
+
+        for bucket in grouped.values():
+            test, created = self._get_or_create_test(bucket, import_mode, Test)
+            if created:
+                summary["tests_created"] += 1
+            else:
+                summary["tests_updated"] += 1
+            q_counts = self._sync_questions(test, bucket["questions"])
+            for key in ("questions_created", "questions_updated", "questions_deleted", "values_created", "values_updated", "values_deleted"):
+                summary[key] += q_counts.get(key, 0)
+            trigger_counts = self._sync_triggers(
+                test, bucket["products"], TriggerLine
+            )
+            for key in ("triggers_created", "triggers_updated"):
+                summary[key] += trigger_counts.get(key, 0)
+
+        return summary
+
+    def _get_or_create_test(self, bucket, import_mode, TestModel):
+        test = self._find_existing_test(bucket, TestModel)
+        translations = bucket.get("test_translations") or {}
+        if test:
+            if import_mode == "create":
+                raise UserError(
+                    _("Test '%s' already exists and import mode is set to create only.")
+                    % (bucket["test_code"] or bucket["test_name"])
+                )
+            test_vals = {
+                "name": bucket["test_name"],
+                "type": bucket["test_type"],
+                "fill_correct_values": bucket["fill_correct_values"],
+                "category": bucket["test_category_id"].id
+                if bucket["test_category_id"]
+                else False,
+                "code": bucket["test_code"] or False,
+            }
+            test.write(test_vals)
+            if translations:
+                self._apply_translations(test, "name", translations)
+            return test, False
+        if import_mode == "update":
+            raise UserError(
+                _("Test '%s' does not exist and import mode is update only.")
+                % (bucket["test_code"] or bucket["test_name"])
+            )
+        test_vals = {
+            "name": bucket["test_name"],
+            "type": bucket["test_type"],
+            "fill_correct_values": bucket["fill_correct_values"],
+            "category": bucket["test_category_id"].id
+            if bucket["test_category_id"]
+            else False,
+            "code": bucket["test_code"] or False,
+        }
+        test = TestModel.create(test_vals)
+        if translations:
+            self._apply_translations(test, "name", translations)
+        return test, True
+
+    def _find_existing_test(self, bucket, TestModel):
+        domain = []
+        code = bucket.get("test_code")
+        if code:
+            domain = [["code", "=", code]]
+        if domain:
+            test = TestModel.search(domain, limit=1)
+            if test:
+                return test
+        name = bucket.get("test_name")
+        if name:
+            test = TestModel.search([["name", "=", name]], limit=1)
+            if test:
+                return test
+        product_ids = list(bucket["products"].keys())
+        if not product_ids:
+            return TestModel.browse()
+        TriggerLine = self.env["qc.trigger.product_template_line"]
+        trigger_line = TriggerLine.search(
+            [
+                ("product_template", "in", product_ids),
+                ("test.name", "=", name),
+            ],
+            limit=1,
+        )
+        return trigger_line.test
+
+    def _sync_questions(self, test, questions):
+        Question = self.env["qc.test.question"]
+        Value = self.env["qc.test.question.value"]
+        existing_by_key = {}
+        for question in test.test_lines:
+            key = question.code or question.name
+            existing_by_key[key] = question
+        processed_ids = set()
+        counts = {
+            "questions_created": 0,
+            "questions_updated": 0,
+            "questions_deleted": 0,
+            "values_created": 0,
+            "values_updated": 0,
+            "values_deleted": 0,
+        }
+        for question_key, payload in questions.items():
+            vals = {
+                "test": test.id,
+                "code": payload["question_code"] or False,
+                "name": payload["question_name"],
+                "sequence": payload["question_sequence"] or 0,
+                "type": payload["question_type"],
+                "notes": payload["question_notes"],
+                "uom_id": payload["uom_id"].id if payload["uom_id"] else False,
+                "min_value": payload["min_value"],
+                "max_value": payload["max_value"],
+            }
+            existing = existing_by_key.get(question_key)
+            if existing:
+                existing.write(vals)
+                counts["questions_updated"] += 1
+                question_rec = existing
+            else:
+                question_rec = Question.create(vals)
+                counts["questions_created"] += 1
+            processed_ids.add(question_rec.id)
+            translations = payload.get("translations") or {}
+            if translations:
+                self._apply_translations(question_rec, "name", translations)
+            val_counts = self._sync_values(question_rec, payload["qualitative_values"])
+            for key in ("values_created", "values_updated", "values_deleted"):
+                counts[key] += val_counts[key]
+        to_remove = test.test_lines.filtered(lambda q: q.id not in processed_ids)
+        counts["questions_deleted"] += len(to_remove)
+        to_remove.unlink()
+        return counts
+
+    def _sync_values(self, question, qualitative_values):
+        Value = self.env["qc.test.question.value"]
+        counts = {"values_created": 0, "values_updated": 0, "values_deleted": 0}
+        if question.type != "qualitative":
+            if question.ql_values:
+                counts["values_deleted"] += len(question.ql_values)
+                question.ql_values.unlink()
+            return counts
+        existing_by_name = {value.name: value for value in question.ql_values}
+        processed_ids = set()
+        for value in qualitative_values.values():
+            existing = existing_by_name.get(value["name"])
+            vals = {
+                "test_line": question.id,
+                "name": value["name"],
+                "ok": value["ok"],
+            }
+            if existing:
+                existing.write({"ok": value["ok"]})
+                counts["values_updated"] += 1
+                processed_ids.add(existing.id)
+            else:
+                Value.create(vals)
+                counts["values_created"] += 1
+        to_remove = question.ql_values.filtered(lambda v: v.id not in processed_ids)
+        counts["values_deleted"] += len(to_remove)
+        to_remove.unlink()
+        return counts
+
+    def _sync_triggers(self, test, products, TriggerLine):
+        Trigger = self.env["qc.trigger"]
+        counts = {"triggers_created": 0, "triggers_updated": 0}
+        for product_id, payload in products.items():
+            if not payload["product"]:
+                continue
+            trigger_name = payload["trigger_name"] or _(
+                "Imported QC trigger"
+            )
+            trigger = Trigger.search([("name", "=", trigger_name)], limit=1)
+            if not trigger:
+                trigger = Trigger.create({"name": trigger_name})
+            trigger_line = TriggerLine.search(
+                [
+                    ("product_template", "=", payload["product"].id),
+                    ("trigger", "=", trigger.id),
+                ],
+                limit=1,
+                order="id",
+            )
+            vals = {
+                "test": test.id,
+                "trigger": trigger.id,
+                "product_template": payload["product"].id,
+                "timing": payload["trigger_timing"] or "after",
+            }
+            if trigger_line:
+                trigger_line.write(
+                    {
+                        "test": test.id,
+                        "timing": vals["timing"],
+                    }
+                )
+                counts["triggers_updated"] += 1
+            else:
+                trigger_line = TriggerLine.create(vals)
+                counts["triggers_created"] += 1
+            duplicates = TriggerLine.search(
+                [
+                    ("product_template", "=", payload["product"].id),
+                    ("trigger", "=", trigger.id),
+                    ("id", "!=", trigger_line.id if trigger_line else 0),
+                ]
+            )
+            if duplicates:
+                duplicates.unlink()
+        return counts
+
+    def _decode_file(self, data_file, filename):
+        try:
+            return base64.b64decode(data_file)
+        except Exception as err:  # pragma: no cover - guard clause
+            raise UserError(
+                _("The file %s could not be decoded: %s")
+                % (filename or _("(unnamed)"), err)
+            ) from err
+
+    def _extract_headers(self, sheet):
+        headers = []
+        for cell in sheet[1]:
+            value = self._normalize_cell(cell.value)
+            headers.append(value)
+        if not headers or all(header == "" for header in headers):
+            raise UserError(_("The Excel file must contain header titles in the first row."))
+        return headers
+
+    def _is_empty_row(self, cells):
+        for value in cells:
+            if value not in (None, ""):
+                if isinstance(value, str) and not value.strip():
+                    continue
+                return False
+        return True
+
+    def _normalize_cell(self, value):
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    def _to_bool(self, value):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        if isinstance(value, (int, float)):
+            return bool(value)
+        str_value = str(value).strip().lower()
+        if not str_value:
+            return False
+        return str_value in self._BOOL_TRUE
+
+    def _to_float(self, value, row_index, column, errors):
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            errors.append(
+                self._error(
+                    row_index,
+                    column,
+                    _("must be a number."),
+                    "invalid_number",
+                )
+            )
+            return None
+
+    def _to_int(self, value, row_index, column, errors):
+        if value in (None, ""):
+            return None
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            errors.append(
+                self._error(
+                    row_index,
+                    column,
+                    _("must be an integer."),
+                    "invalid_integer",
+                )
+            )
+            return None
+
+    def _resolve_xmlid(self, xmlid, row_index, column, errors):
+        if not xmlid:
+            return None
+        try:
+            return self.env.ref(xmlid)
+        except Exception:
+            errors.append(
+                self._error(
+                    row_index,
+                    column,
+                    _("%s is not a valid external identifier.") % xmlid,
+                    "invalid_xmlid",
+                )
+            )
+            return None
+
+    def _resolve_product(self, default_code, row_index, errors):
+        if not default_code:
+            return None
+        Product = self.env["product.template"]
+        product = Product.search([("default_code", "=", default_code)], limit=1)
+        if not product:
+            errors.append(
+                self._error(
+                    row_index,
+                    "trigger_product_template_line_ids/product_template/default_code",
+                    _("Product with code '%s' not found.") % default_code,
+                    "unknown_product",
+                )
+            )
+            return None
+        return product
+
+    def _get_available_lang_codes(self):
+        if not hasattr(self, "_available_lang_codes"):
+            langs = (
+                self.env["res.lang"]
+                .with_context(active_test=False)
+                .search([])
+                .mapped("code")
+            )
+            self._available_lang_codes = set(langs)
+        return self._available_lang_codes
+
+    def _resolve_lang_code(self, lang_fragment):
+        if not lang_fragment:
+            return None
+        fragment = lang_fragment.replace("-", "_")
+        available = self._get_available_lang_codes()
+        lower_fragment = fragment.lower()
+        for code in available:
+            if code.lower() == lower_fragment:
+                return code
+        if "_" not in fragment and len(fragment) == 2:
+            prefix = fragment.lower()
+            for code in available:
+                if code.lower().startswith(prefix + "_"):
+                    return code
+        return None
+
+    def _extract_translations(self, raw_row, prefixes, row_index):
+        translations = {}
+        warnings = []
+        for key, value in raw_row.items():
+            for prefix in prefixes:
+                if not key.startswith(prefix):
+                    continue
+                suffix = key[len(prefix) :]
+                if not suffix:
+                    continue
+                candidate = suffix.replace("-", "_")
+                if "_" in candidate:
+                    parts = candidate.split("_")
+                    if len(parts) != 2 or len(parts[0]) != 2 or len(parts[1]) != 2:
+                        continue
+                elif len(candidate) != 2:
+                    continue
+                resolved = self._resolve_lang_code(candidate)
+                if not resolved:
+                    warnings.append(
+                        self._warning(
+                            row_index,
+                            key,
+                            _(
+                                "Language %(lang)s is not installed; translation ignored."
+                            )
+                            % {"lang": candidate},
+                            "language_not_installed",
+                        )
+                    )
+                    continue
+                text = (value or "").strip()
+                if not text:
+                    continue
+                translations[resolved] = text
+                break
+        return translations, warnings
+
+    def _apply_translations(self, record, field_name, translations):
+        if not record:
+            return
+        for lang_code, text in translations.items():
+            if not text:
+                continue
+            record.with_context(lang=lang_code).write({field_name: text})
+
+    def _message(self, row, column, message, code, level):
+        return {
+            "row": row,
+            "column": column,
+            "message": message,
+            "code": code,
+            "level": level,
+        }
+
+    def _error(self, row, column, message, code):
+        return self._message(row, column, message, code, "error")
+
+    def _warning(self, row, column, message, code):
+        return self._message(row, column, message, code, "warning")
+
+    def format_errors(self, errors):
+        lines = []
+        for error in errors:
+            row = error.get("row")
+            column = error.get("column") or "-"
+            code = error.get("code") or "-"
+            message = error.get("message") or ""
+            row_display = "-" if row in (None, "") else row
+            lines.append(
+                _("Row %(row)s - %(column)s [%(code)s]: %(message)s")
+                % {
+                    "row": row_display,
+                    "column": column,
+                    "code": code,
+                    "message": message,
+                }
+            )
+        return "\n".join(lines)

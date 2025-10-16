@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_qc_import_excel_download_template" model="ir.actions.act_url">
+        <field name="name">Download QC Excel Template</field>
+        <field name="url">/quality_control_oca/static/xlsx/qc_product_questions_template.xlsx</field>
+        <field name="target">self</field>
+    </record>
+
+    <record id="view_qc_import_excel_preview_tree" model="ir.ui.view">
+        <field name="name">qc.import.excel.preview.list</field>
+        <field name="model">qc.import.excel.preview</field>
+        <field name="arch" type="xml">
+            <list string="Preview" create="false" edit="false" delete="false">
+                <field name="row_index"/>
+                <field name="product_template_default_code"/>
+                <field name="test_code"/>
+                <field name="test_name"/>
+                <field name="trigger_name"/>
+                <field name="trigger_timing"/>
+                <field name="question_code"/>
+                <field name="question_name"/>
+                <field name="question_type"/>
+                <field name="qualitative_value_name"/>
+                <field name="qualitative_value_ok" widget="boolean_toggle"/>
+                <field name="fill_correct_values" widget="boolean_toggle"/>
+                <field name="uom_xmlid"/>
+                <field name="min_value"/>
+                <field name="max_value"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_qc_import_excel_wizard" model="ir.ui.view">
+        <field name="name">qc.import.excel.wizard.form</field>
+        <field name="model">qc.import.excel.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Import Quality Tests">
+                <group>
+                    <field name="data_file" filename="filename"/>
+                    <field name="filename" invisible="1"/>
+                    <field name="import_mode"/>
+                    <button
+                        name="%(quality_control_oca.action_qc_import_excel_download_template)d"
+                        type="action"
+                        string="Download template"
+                        class="btn-link"
+                    />
+                </group>
+                <group string="Preview" modifiers="{'invisible': [('preview_line_ids', '=', False)]}">
+                    <field
+                        name="preview_line_ids"
+                        context="{'no_open': True}"
+                        options="{'no_create': True, 'no_edit': True, 'no_open': True}"
+                        views="[(ref('quality_control_oca.view_qc_import_excel_preview_tree'), 'list')]"
+                    />
+                </group>
+                <footer>
+                    <button
+                        name="action_preview"
+                        type="object"
+                        class="btn-secondary"
+                        string="Preview"
+                    />
+                    <button
+                        name="action_import"
+                        type="object"
+                        class="btn-primary"
+                        string="Import"
+                    />
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_qc_import_excel_wizard" model="ir.actions.act_window">
+        <field name="name">Import Tests from Excel</field>
+        <field name="res_model">qc.import.excel.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_qc_import_excel_wizard"/>
+        <field name="target">new</field>
+        <field name="context">{'default_import_mode': 'create'}</field>
+    </record>
+
+    <menuitem
+        id="menu_qc_import_excel"
+        name="Import Tests from Excel"
+        parent="qc_menu_test_parent"
+        action="action_qc_import_excel_wizard"
+        sequence="60"
+    />
+</odoo>
