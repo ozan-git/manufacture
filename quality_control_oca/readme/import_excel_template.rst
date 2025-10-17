@@ -72,9 +72,10 @@ Template Columns
      - Human-readable product template name; used for review only.
      - ``Sterilized Filter``
    * - ``code``
-     - Required
+     - Optional
      - Text (unique per test)
-     - Identifier used to create or update the related ``qc.test``.
+     - Stable identifier used to create or update the related ``qc.test``. Leave it
+       empty to rely on the test name.
      - ``STERIL_TEST``
    * - ``name``
      - Required
@@ -82,9 +83,10 @@ Template Columns
      - Display name of the quality test.
      - ``Sterility Check``
    * - ``type``
-     - Required
+     - Optional
      - ``generic`` | ``related``
-     - Determines whether the test is generic or linked to a specific model.
+     - Determines whether the test is generic or linked to a specific model. Defaults
+       to ``generic`` when left empty.
      - ``related``
    * - ``category/id``
      - Optional
@@ -115,14 +117,16 @@ Template Columns
      - Timing applied to the trigger line when the product template is filled.
      - ``after``
    * - ``test_lines/sequence``
-     - Required
+     - Optional
      - Integer
-     - Sequence used to order the questions within the test.
+     - Sequence used to order the questions within the test. Missing values are
+       auto-generated in steps of 10 following the row order.
      - ``10``
    * - ``test_lines/code``
-     - Required
+     - Optional
      - Text (unique per test)
-     - Identifier to help detect and update existing questions.
+     - Identifier to help detect and update existing questions. Leave empty to use
+       the question name.
      - ``STER_TEMP``
    * - ``test_lines/name``
      - Required
@@ -130,9 +134,10 @@ Template Columns
      - Label shown on the inspection line.
      - ``Sterilization Temperature``
    * - ``test_lines/type``
-     - Required
+     - Optional
      - ``qualitative`` | ``quantitative``
      - Defines whether the question expects a discrete value or a numeric range.
+       Defaults to ``qualitative``.
      - ``quantitative``
    * - ``test_lines/notes``
      - Optional
@@ -174,57 +179,62 @@ Template Columns
        TRUE when qualitative options are defined.
      - ``TRUE``
 
+Quick Start: Question-Only Import
+---------------------------------
+
+If you only need to prepare question banks for a quality test, you can keep the
+template lean:
+
+1. Fill in ``name`` with the test title and ``test_lines/name`` for every
+   question you want to create.
+2. Add one row per qualitative answer in ``test_lines/ql_values/name`` and mark
+   the acceptable option by setting ``test_lines/ql_values/ok`` to ``TRUE``. At
+   least one option per question must be marked as OK.
+3. Leave all trigger and product columns empty to create generic tests that you
+   can later assign manually on the product.
+4. Skip ``type`` and ``test_lines/type`` unless you need quantitative questions.
+   The loader defaults them to ``generic`` and ``qualitative``.
+5. Omit ``test_lines/sequence`` to let the loader auto-assign ordering in steps
+   of ten following the spreadsheet row order.
+
 Example Dataset
 ---------------
 
-The template ships with a sample set of rows to illustrate quantitative and
-qualitative questions. You can keep them as a reference or delete them before
-importing real data.
+The example below mirrors a minimal question-only file. You can copy/paste it
+into the template or build your own spreadsheet following the same structure.
 
 .. list-table:: Sample rows
    :header-rows: 1
-   :widths: 16 14 12 18 10 18 10 16
+   :widths: 28 28 24 10 10
 
-   * - Test code
-     - Question code
-     - Question type
-     - Qualitative value
-     - OK?
-     - UoM
-     - Min
-     - Max
-   * - ``STERIL_TEST``
-     - ``STER_TEMP``
-     - ``quantitative``
-     - ``-``
-     - ``-``
-     - ``uom.product_uom_celsius``
-     - ``120``
-     - ``130``
-   * - ``STERIL_TEST``
-     - ``STER_COLOR``
-     - ``qualitative``
-     - ``Clear``
+   * - Test name (``name``)
+     - Question (``test_lines/name``)
+     - Option (``test_lines/ql_values/name``)
+     - OK? (``test_lines/ql_values/ok``)
+     - Notes (``test_lines/notes``)
+   * - ``Incoming Visual Check``
+     - ``Packaging Intact``
+     - ``OK``
      - ``TRUE``
-     - ``-``
-     - ``-``
-     - ``-``
-   * - ``STERIL_TEST``
-     - ``STER_COLOR``
-     - ``qualitative``
-     - ``Amber``
+     - ``Verify packaging is sealed``
+   * - ``Incoming Visual Check``
+     - ``Packaging Intact``
+     - ``Damaged``
      - ``FALSE``
-     - ``-``
-     - ``-``
+     - ``Verify packaging is sealed``
+   * - ``Incoming Visual Check``
+     - ``Label Legible``
+     - ``Readable``
+     - ``TRUE``
      - ``-``
 
 Filling Checklist
 -----------------
 
 #. Download the template and make a copy for your project.
-#. Replace the sample rows with your product and test data. Reuse the same
-   ``code`` and ``test_lines/code`` values when you want to update existing
-   records.
+#. Populate the rows with your test names, questions, and optional identifiers.
+   Reuse the same ``code`` and ``test_lines/code`` values when you want to update
+   existing records.
 #. For qualitative questions, create one row per answer value and mark the
    acceptable option with ``TRUE``.
 #. Leave product columns empty for tests that should stay generic and manually

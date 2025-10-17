@@ -90,6 +90,9 @@ class TestQcExcelLoader(TransactionCase):
         workbook.save(stream)
         return base64.b64encode(stream.getvalue())
 
+    def _row_from_mapping(self, mapping, headers=HEADERS):
+        return [mapping.get(header, "") for header in headers]
+
     def _quantitative_row(self, min_value=120, max_value=130, timing="after", fill=True):
         return [
             self.product_template.default_code,
@@ -233,6 +236,71 @@ class TestQcExcelLoader(TransactionCase):
             ]
         )
         self.assertEqual(len(trigger_lines), 1)
+
+    def test_import_generic_questions_only(self):
+        rows = [
+            self._row_from_mapping(
+                {
+                    "name": "Incoming Visual Check",
+                    "test_lines/name": "Packaging Intact",
+                    "test_lines/notes": "Verify packaging is sealed",
+                    "test_lines/ql_values/name": "OK",
+                    "test_lines/ql_values/ok": True,
+                }
+            ),
+            self._row_from_mapping(
+                {
+                    "name": "Incoming Visual Check",
+                    "test_lines/name": "Packaging Intact",
+                    "test_lines/ql_values/name": "Damaged",
+                    "test_lines/ql_values/ok": False,
+                }
+            ),
+            self._row_from_mapping(
+                {
+                    "name": "Incoming Visual Check",
+                    "test_lines/name": "Label Legible",
+                    "test_lines/ql_values/name": "Readable",
+                    "test_lines/ql_values/ok": True,
+                }
+            ),
+        ]
+        data_file = self._build_workbook(rows)
+        load_result = self.loader.load_from_binary(data_file, "minimal.xlsx")
+        self.assertFalse(load_result["errors"])
+        summary = self.loader.import_rows(load_result["rows"], "create_update")
+        self.assertEqual(summary["tests_created"], 1)
+        self.assertEqual(summary["questions_created"], 2)
+        self.assertEqual(summary["triggers_created"], 0)
+        self.assertEqual(summary["values_created"], 3)
+
+        test = self.env["qc.test"].search(
+            [("name", "=", "Incoming Visual Check")], limit=1
+        )
+        self.assertTrue(test)
+        self.assertEqual(test.type, "generic")
+        self.assertFalse(test.code)
+        self.assertFalse(test.fill_correct_values)
+
+        lines = test.test_lines.sorted("sequence")
+        self.assertEqual(lines.mapped("name"), ["Packaging Intact", "Label Legible"])
+        self.assertEqual(lines.mapped("sequence"), [10, 20])
+
+        packaging = lines.filtered(lambda line: line.name == "Packaging Intact")
+        packaging.ensure_one()
+        self.assertEqual(len(packaging.ql_values), 2)
+        self.assertSetEqual(
+            set(packaging.ql_values.mapped("name")), {"OK", "Damaged"}
+        )
+        self.assertSetEqual(
+            {value.name for value in packaging.ql_values if value.ok}, {"OK"}
+        )
+        self.assertEqual(
+            self.env["qc.trigger.product_template_line"].search_count(
+                [("test", "=", test.id)]
+            ),
+            0,
+        )
 
     def test_import_legacy_headers(self):
         data_file = self._build_workbook(

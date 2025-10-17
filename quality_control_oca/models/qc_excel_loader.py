@@ -48,13 +48,8 @@ class QcExcelLoader(models.AbstractModel):
     }
 
     _MANDATORY_FIELDS = {
-        "code",
         "name",
-        "type",
-        "test_lines/sequence",
-        "test_lines/code",
         "test_lines/name",
-        "test_lines/type",
     }
 
     def load_from_binary(self, data_file, filename=None):
@@ -199,15 +194,6 @@ class QcExcelLoader(models.AbstractModel):
             raw_row.get("trigger_product_template_line_ids/trigger/name") or ""
         ).strip()
         normalized["trigger_timing"] = trigger_timing or "after"
-        if normalized["product_template"] and not normalized["trigger_name"]:
-            warnings.append(
-                self._warning(
-                    row_index,
-                    "trigger_product_template_line_ids/trigger/name",
-                    _("No trigger name provided; a default value will be used."),
-                    "missing_trigger_name",
-                )
-            )
         normalized["question_code"] = (
             raw_row.get("test_lines/code") or ""
         ).strip()
@@ -282,6 +268,15 @@ class QcExcelLoader(models.AbstractModel):
                     "trigger_product_template_line_ids/product_template/default_code",
                     _("is required when the test type is set to related."),
                     "missing_product_for_related",
+                )
+            )
+        if normalized["product_template"] and not normalized["trigger_name"]:
+            warnings.append(
+                self._warning(
+                    row_index,
+                    "trigger_product_template_line_ids/trigger/name",
+                    _("No trigger name provided; a default value will be used."),
+                    "missing_trigger_name",
                 )
             )
         normalized["product_template_name"] = (
@@ -785,12 +780,17 @@ class QcExcelLoader(models.AbstractModel):
             "values_updated": 0,
             "values_deleted": 0,
         }
-        for question_key, payload in questions.items():
+        for index, (question_key, payload) in enumerate(
+            questions.items(), start=1
+        ):
+            sequence = payload["question_sequence"]
+            if sequence is None:
+                sequence = index * 10
             vals = {
                 "test": test.id,
                 "code": payload["question_code"] or False,
                 "name": payload["question_name"],
-                "sequence": payload["question_sequence"] or 0,
+                "sequence": sequence,
                 "type": payload["question_type"],
                 "notes": payload["question_notes"],
                 "uom_id": payload["uom_id"].id if payload["uom_id"] else False,
