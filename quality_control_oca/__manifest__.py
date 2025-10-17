@@ -32,6 +32,11 @@
         "views/product_template_view.xml",
         "views/product_category_view.xml",
     ],
+    "assets": {
+        "web.assets_backend": [
+            "quality_control_oca/static/src/js/qc_test_export_all.js",
+        ],
+    },
     "demo": ["demo/quality_control_demo.xml"],
     "installable": True,
 }

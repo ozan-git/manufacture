@@ -64,6 +64,8 @@ class QcTest(models.Model):
         )
         context = dict(self.env.context)
         active_ids = context.get("active_ids") or self.ids
+        if not active_ids and context.get("active_domain"):
+            active_ids = self.search(context["active_domain"]).ids
         if not isinstance(active_ids, list):
             active_ids = [active_ids]
         context.update(
@@ -76,6 +78,17 @@ class QcTest(models.Model):
         )
         action["context"] = context
         return action
+
+    @api.model
+    def action_export_excel_direct(self, domain=None, ids=None):
+        """Generate the Excel export without displaying the wizard."""
+
+        records = self.browse(ids) if ids else self.search(domain or [])
+        records = records.exists()
+        wizard = self.env["qc.export.excel.wizard"].create(
+            {"test_ids": [(6, 0, records.ids)]}
+        )
+        return wizard.action_export()
 
     @api.model
     def get_import_templates(self):
