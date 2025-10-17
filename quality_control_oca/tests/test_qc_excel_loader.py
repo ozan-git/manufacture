@@ -71,22 +71,13 @@ class TestQcExcelLoader(TransactionCase):
             {"name": "Sterilized Filter", "default_code": "FERT-001"}
         )
         self.category_process = self.env.ref(
-            "quality_control_oca.qc_test_category_process", raise_if_not_found=False
+            "quality_control_oca.qc_test_category_process"
         )
-        if not self.category_process:
-            self.category_process = self.env["qc.test.category"].create(
-                {"name": "Process"}
-            )
-        self.category_process_xmlid = (
-            self.category_process.get_external_id().get(self.category_process.id)
-            or "quality_control_oca.qc_test_category_process"
+        self.category_process_xmlid = self.category_process.get_external_id().get(
+            self.category_process.id
         )
         self.category_process_name = self.category_process.display_name
-        self.trigger = self.env["qc.trigger"].search(
-            [("name", "=", "Manufacturing Order")], limit=1
-        )
-        if not self.trigger:
-            self.trigger = self.env["qc.trigger"].create({"name": "Manufacturing Order"})
+        self.trigger = self.env.ref("quality_control_oca.qc_trigger_manufacturing_order")
         self.uom_celsius = self.env.ref("uom.product_uom_celsius")
 
     def _build_workbook(self, rows, headers=HEADERS):

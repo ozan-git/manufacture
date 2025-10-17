@@ -91,13 +91,13 @@ Template Columns
      - Module XML-ID
      - Reference to an existing ``qc.test.category`` record (``module.record``). Provide
        this when the category has a stable external identifier.
-     - ``quality_control_oca.qc_test_category_process``
+     - ``quality_control_oca.qc_test_category_process`` (provided by this module)
    * - ``category/name``
      - Optional
      - Text
      - Category name (or full path such as ``Parent / Child``). Used as a fallback when
        no external ID is available in the previous column.
-     - ``Generic``
+     - ``Process``
    * - ``fill_correct_values``
      - Optional
      - ``TRUE`` | ``FALSE``
@@ -108,7 +108,7 @@ Template Columns
      - Text
      - Name of the ``qc.trigger`` to use when creating the
        ``qc.trigger.product_template_line``.
-     - ``Manufacturing Order``
+     - ``Manufacturing Order`` (default trigger provided by this module)
    * - ``trigger_product_template_line_ids/timing``
      - Optional
      - ``before`` | ``after`` | ``plan_ahead``

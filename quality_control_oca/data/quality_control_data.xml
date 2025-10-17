@@ -13,6 +13,12 @@
     <record id="qc_test_template_category_referenced" model="qc.test.category">
         <field name="name">Referenced</field>
     </record>
+    <record id="qc_test_category_process" model="qc.test.category">
+        <field name="name">Process</field>
+    </record>
+    <record id="qc_trigger_manufacturing_order" model="qc.trigger">
+        <field name="name">Manufacturing Order</field>
+    </record>
     <record forcecreate="True" id="decimal_quality_control" model="decimal.precision">
         <field name="name">Quality Control</field>
         <field name="digits">5</field>
