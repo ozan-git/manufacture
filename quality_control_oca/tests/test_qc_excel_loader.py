@@ -18,6 +18,7 @@ HEADERS = [
     "name",
     "type",
     "category/id",
+    "category/name",
     "fill_correct_values",
     "trigger_product_template_line_ids/trigger/name",
     "trigger_product_template_line_ids/timing",
@@ -27,6 +28,7 @@ HEADERS = [
     "test_lines/type",
     "test_lines/notes",
     "test_lines/uom_id/id",
+    "test_lines/uom_id/name",
     "test_lines/min_value",
     "test_lines/max_value",
     "test_lines/ql_values/name",
@@ -41,6 +43,7 @@ LEGACY_HEADERS = [
     "test_name",
     "test_type",
     "test_category_xmlid",
+    "test_category_name",
     "fill_correct_values",
     "trigger_name",
     "trigger_timing",
@@ -50,6 +53,7 @@ LEGACY_HEADERS = [
     "question_type",
     "question_notes",
     "uom_xmlid",
+    "uom_name",
     "min_value",
     "max_value",
     "qualitative_value_name",
@@ -66,6 +70,24 @@ class TestQcExcelLoader(TransactionCase):
         self.product_template = self.env["product.template"].create(
             {"name": "Sterilized Filter", "default_code": "FERT-001"}
         )
+        self.category_process = self.env.ref(
+            "quality_control_oca.qc_test_category_process", raise_if_not_found=False
+        )
+        if not self.category_process:
+            self.category_process = self.env["qc.test.category"].create(
+                {"name": "Process"}
+            )
+        self.category_process_xmlid = (
+            self.category_process.get_external_id().get(self.category_process.id)
+            or "quality_control_oca.qc_test_category_process"
+        )
+        self.category_process_name = self.category_process.display_name
+        self.trigger = self.env["qc.trigger"].search(
+            [("name", "=", "Manufacturing Order")], limit=1
+        )
+        if not self.trigger:
+            self.trigger = self.env["qc.trigger"].create({"name": "Manufacturing Order"})
+        self.uom_celsius = self.env.ref("uom.product_uom_celsius")
 
     def _build_workbook(self, rows, headers=HEADERS):
         workbook = Workbook()
@@ -84,9 +106,10 @@ class TestQcExcelLoader(TransactionCase):
             "STERIL_TEST",
             "Sterility Check",
             "related",
-            "quality_control_oca.qc_test_category_process",
+            self.category_process_xmlid,
+            self.category_process_name,
             fill,
-            "Manufacturing Order",
+            self.trigger.name,
             timing,
             10,
             "STER_TEMP",
@@ -94,6 +117,7 @@ class TestQcExcelLoader(TransactionCase):
             "quantitative",
             "Target range 120-130 C",
             "uom.product_uom_celsius",
+            self.uom_celsius.display_name,
             min_value,
             max_value,
             "",
@@ -107,15 +131,17 @@ class TestQcExcelLoader(TransactionCase):
             "STERIL_TEST",
             "Sterility Check",
             "related",
-            "quality_control_oca.qc_test_category_process",
+            self.category_process_xmlid,
+            self.category_process_name,
             fill,
-            "Manufacturing Order",
+            self.trigger.name,
             timing,
             20,
             "STER_COLOR",
             "Filter Color",
             "qualitative",
             "Visual inspection",
+            "",
             "",
             "",
             "",

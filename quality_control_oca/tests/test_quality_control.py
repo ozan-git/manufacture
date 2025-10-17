@@ -202,6 +202,9 @@ class TestQualityControlOca(TestQualityControlOcaBase):
         }
         self.assertIn(self.test.name, test_names)
 
+        self.assertIn("category/name", header_index)
+        self.assertIn("test_lines/uom_id/name", header_index)
+
         question_types = {row[header_index["test_lines/type"]] for row in rows}
         self.assertIn("qualitative", question_types)
         self.assertIn("quantitative", question_types)
@@ -227,6 +230,10 @@ class TestQualityControlOca(TestQualityControlOcaBase):
             row[header_index["test_lines/uom_id/id"]] for row in quantitative_rows
         }
         self.assertIn(uom_xmlid, uom_values)
+        uom_name_values = {
+            row[header_index["test_lines/uom_id/name"]] for row in quantitative_rows
+        }
+        self.assertIn(self.qn_question.uom_id.display_name, uom_name_values)
 
     def test_export_includes_trigger_and_product_details(self):
         if openpyxl is None:
@@ -333,6 +340,9 @@ class TestQualityControlOca(TestQualityControlOcaBase):
         self.assertEqual(export_row[header_index["name"]], export_test.name)
         self.assertEqual(export_row[header_index["type"]], export_test.type)
         self.assertEqual(export_row[header_index["category/id"]], category_xmlid)
+        self.assertEqual(
+            export_row[header_index["category/name"]], export_test.category.display_name
+        )
         self.assertTrue(export_row[header_index["fill_correct_values"]])
 
         question = export_test.test_lines
@@ -349,6 +359,9 @@ class TestQualityControlOca(TestQualityControlOcaBase):
         self.assertEqual(
             export_row[header_index["test_lines/uom_id/id"]],
             uom_unit.get_external_id().get(uom_unit.id),
+        )
+        self.assertEqual(
+            export_row[header_index["test_lines/uom_id/name"]], uom_unit.display_name
         )
         self.assertEqual(
             export_row[header_index["test_lines/min_value"]], question.min_value

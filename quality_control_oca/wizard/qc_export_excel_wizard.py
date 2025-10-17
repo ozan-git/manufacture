@@ -128,6 +128,7 @@ class QcExportExcelWizard(models.TransientModel):
             "name": test.name or "",
             "type": test.type or "generic",
             "category/id": self._get_external_id(test.category),
+            "category/name": test.category.display_name if test.category else "",
             "fill_correct_values": bool(test.fill_correct_values),
             "test_lines/sequence": question.sequence or 0,
             "test_lines/code": question.code or "",
@@ -139,6 +140,9 @@ class QcExportExcelWizard(models.TransientModel):
     def _prepare_quantitative_payload(self, question):
         return {
             "test_lines/uom_id/id": self._get_external_id(question.uom_id),
+            "test_lines/uom_id/name": (
+                question.uom_id.display_name if question.uom_id else ""
+            ),
             "test_lines/min_value": (
                 question.min_value if question.min_value is not None else ""
             ),
@@ -152,14 +156,16 @@ class QcExportExcelWizard(models.TransientModel):
     def _prepare_qualitative_payload(self, value):
         if not value:
             return {
-                "test_lines/uom_id/id": "",
-                "test_lines/min_value": "",
-                "test_lines/max_value": "",
-                "test_lines/ql_values/name": "",
-                "test_lines/ql_values/ok": False,
-            }
+            "test_lines/uom_id/id": "",
+            "test_lines/uom_id/name": "",
+            "test_lines/min_value": "",
+            "test_lines/max_value": "",
+            "test_lines/ql_values/name": "",
+            "test_lines/ql_values/ok": False,
+        }
         return {
             "test_lines/uom_id/id": "",
+            "test_lines/uom_id/name": "",
             "test_lines/min_value": "",
             "test_lines/max_value": "",
             "test_lines/ql_values/name": value.name or "",

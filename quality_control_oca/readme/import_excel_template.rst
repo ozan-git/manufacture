@@ -89,8 +89,15 @@ Template Columns
    * - ``category/id``
      - Optional
      - Module XML-ID
-     - Reference to an existing ``qc.test.category`` record (``module.record``).
+     - Reference to an existing ``qc.test.category`` record (``module.record``). Provide
+       this when the category has a stable external identifier.
      - ``quality_control_oca.qc_test_category_process``
+   * - ``category/name``
+     - Optional
+     - Text
+     - Category name (or full path such as ``Parent / Child``). Used as a fallback when
+       no external ID is available in the previous column.
+     - ``Generic``
    * - ``fill_correct_values``
      - Optional
      - ``TRUE`` | ``FALSE``
@@ -136,7 +143,14 @@ Template Columns
      - Conditional
      - Module XML-ID
      - Unit of measure for quantitative questions. Leave empty for qualitative ones.
+       If the unit has no external ID, use the next column instead.
      - ``uom.product_uom_celsius``
+   * - ``test_lines/uom_id/name``
+     - Conditional
+     - Text
+     - Human-readable unit name used when the XML-ID is missing (for example,
+       ``Degrees Celsius``).
+     - ``Degrees Celsius``
    * - ``test_lines/min_value``
      - Conditional
      - Number

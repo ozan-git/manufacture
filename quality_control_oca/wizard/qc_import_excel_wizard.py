@@ -117,10 +117,10 @@ class QcImportExcelWizard(models.TransientModel):
 
     def _get_uom_xmlid(self, data, raw):
         uom = data.get("uom_id")
-        if not uom:
-            return raw.get("test_lines/uom_id/id")
-        xmlids = uom.get_external_id()
-        return xmlids.get(uom.id) or raw.get("test_lines/uom_id/id")
+        if uom:
+            xmlids = uom.get_external_id()
+            return xmlids.get(uom.id) or uom.display_name
+        return raw.get("test_lines/uom_id/name") or raw.get("test_lines/uom_id/id")
 
     def _format_number(self, value):
         if value in (None, ""):
@@ -157,7 +157,7 @@ class QcImportExcelPreview(models.TransientModel):
     question_code = fields.Char(string="Question Code")
     question_name = fields.Char(string="Question Name")
     question_type = fields.Char(string="Question Type")
-    uom_xmlid = fields.Char(string="UoM XML-ID")
+    uom_xmlid = fields.Char(string="UoM")
     min_value = fields.Char(string="Min")
     max_value = fields.Char(string="Max")
     fill_correct_values = fields.Boolean(string="Prefill OK Values")

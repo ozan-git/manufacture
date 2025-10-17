@@ -28,6 +28,9 @@ class QcExcelLoader(models.AbstractModel):
         "test_name": "name",
         "test_type": "type",
         "test_category_xmlid": "category/id",
+        "test_category_name": "category/name",
+        "category_name": "category/name",
+        "category": "category/name",
         "trigger_name": "trigger_product_template_line_ids/trigger/name",
         "trigger_timing": "trigger_product_template_line_ids/timing",
         "question_sequence": "test_lines/sequence",
@@ -36,6 +39,8 @@ class QcExcelLoader(models.AbstractModel):
         "question_type": "test_lines/type",
         "question_notes": "test_lines/notes",
         "uom_xmlid": "test_lines/uom_id/id",
+        "uom_name": "test_lines/uom_id/name",
+        "test_lines/uom_id": "test_lines/uom_id/name",
         "min_value": "test_lines/min_value",
         "max_value": "test_lines/max_value",
         "qualitative_value_name": "test_lines/ql_values/name",
@@ -243,13 +248,23 @@ class QcExcelLoader(models.AbstractModel):
         normalized["question_translations"] = question_translations
         warnings.extend(question_warnings)
 
-        category_xmlid = raw_row.get("category/id")
-        normalized["test_category_id"] = self._resolve_xmlid(
+        category_xmlid = (raw_row.get("category/id") or "").strip()
+        category_name = (raw_row.get("category/name") or "").strip()
+        category = self._resolve_xmlid(
             category_xmlid,
             row_index,
             "category/id",
             errors,
+            silent=bool(category_name),
         )
+        if category is None and category_name:
+            category = self._resolve_category_by_name(
+                category_name,
+                row_index,
+                "category/name",
+                errors,
+            )
+        normalized["test_category_id"] = category
 
         product_code = (
             raw_row.get(
@@ -278,10 +293,23 @@ class QcExcelLoader(models.AbstractModel):
             ).strip()
         )
 
-        uom_xmlid = raw_row.get("test_lines/uom_id/id")
-        normalized["uom_id"] = self._resolve_xmlid(
-            uom_xmlid, row_index, "test_lines/uom_id/id", errors
+        uom_xmlid = (raw_row.get("test_lines/uom_id/id") or "").strip()
+        uom_name = (raw_row.get("test_lines/uom_id/name") or "").strip()
+        uom = self._resolve_xmlid(
+            uom_xmlid,
+            row_index,
+            "test_lines/uom_id/id",
+            errors,
+            silent=bool(uom_name),
         )
+        if uom is None and uom_name:
+            uom = self._resolve_uom_by_name(
+                uom_name,
+                row_index,
+                "test_lines/uom_id/name",
+                errors,
+            )
+        normalized["uom_id"] = uom
 
         normalized["min_value"] = self._to_float(
             raw_row.get("test_lines/min_value"),
@@ -943,21 +971,94 @@ class QcExcelLoader(models.AbstractModel):
             )
             return None
 
-    def _resolve_xmlid(self, xmlid, row_index, column, errors):
+    def _resolve_xmlid(self, xmlid, row_index, column, errors, silent=False):
         if not xmlid:
             return None
         try:
             return self.env.ref(xmlid)
         except Exception:
+            if not silent:
+                errors.append(
+                    self._error(
+                        row_index,
+                        column,
+                        _("%s is not a valid external identifier.") % xmlid,
+                        "invalid_xmlid",
+                    )
+                )
+            return None
+
+    def _resolve_category_by_name(self, name, row_index, column, errors):
+        if not name:
+            return None
+        Category = self.env["qc.test.category"]
+        domain = [
+            "|",
+            ("complete_name", "=", name),
+            ("name", "=", name),
+        ]
+        categories = Category.search(domain, limit=2)
+        if not categories:
             errors.append(
                 self._error(
                     row_index,
                     column,
-                    _("%s is not a valid external identifier.") % xmlid,
-                    "invalid_xmlid",
+                    _("Category with name '%s' not found.") % name,
+                    "unknown_category",
                 )
             )
             return None
+        if len(categories) > 1:
+            errors.append(
+                self._error(
+                    row_index,
+                    column,
+                    _(
+                        "Multiple categories match the name '%s'. "
+                        "Please specify a unique name or an external ID."
+                    )
+                    % name,
+                    "ambiguous_category",
+                )
+            )
+            return None
+        return categories
+
+    def _resolve_uom_by_name(self, name, row_index, column, errors):
+        if not name:
+            return None
+        Uom = self.env["uom.uom"]
+        domain = [
+            "|",
+            ("display_name", "=", name),
+            ("name", "=", name),
+        ]
+        uoms = Uom.search(domain, limit=2)
+        if not uoms:
+            errors.append(
+                self._error(
+                    row_index,
+                    column,
+                    _("Unit of measure '%s' not found.") % name,
+                    "unknown_uom",
+                )
+            )
+            return None
+        if len(uoms) > 1:
+            errors.append(
+                self._error(
+                    row_index,
+                    column,
+                    _(
+                        "Multiple units of measure match '%s'. "
+                        "Please specify a unique name or an external ID."
+                    )
+                    % name,
+                    "ambiguous_uom",
+                )
+            )
+            return None
+        return uoms
 
     def _resolve_product(self, default_code, row_index, errors):
         if not default_code:
