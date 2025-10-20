@@ -429,6 +429,10 @@ class TestQualityControlStockOca(TestQualityControlOcaBase):
         ]
         picking._action_done()
         self.assertEqual(picking.created_inspections, 2)
+        self.assertEqual(
+            set(picking.qc_inspections_ids.mapped("lot_id").ids),
+            set(lots.ids),
+        )
 
     def test_lot_per_lot_multiple_moves(self):
         self.trigger.per_lot = True
@@ -477,6 +481,10 @@ class TestQualityControlStockOca(TestQualityControlOcaBase):
         ]
         picking._action_done()
         self.assertEqual(picking.created_inspections, 2)
+        self.assertEqual(
+            set(picking.qc_inspections_ids.mapped("lot_id").ids),
+            set(lots.ids),
+        )
 
     def test_no_tracking_per_lot(self):
         self.trigger.per_lot = True
