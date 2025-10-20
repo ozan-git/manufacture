@@ -429,6 +429,62 @@ class TestQualityControlStockOca(TestQualityControlOcaBase):
         ]
         picking._action_done()
         self.assertEqual(picking.created_inspections, 2)
+        self.assertEqual(
+            set(picking.qc_inspections_ids.mapped("lot_id").ids),
+            set(lots.ids),
+        )
+
+    def test_lot_per_lot_multiple_moves(self):
+        self.trigger.per_lot = True
+        self.product.tracking = "lot"
+        lots = [
+            self.env["stock.lot"].create(
+                {"name": f"lot-move-{i}", "product_id": self.product.id}
+            )
+            for i in range(1, 3)
+        ]
+        for lot in lots:
+            self.env["stock.quant"].create(
+                {
+                    "product_id": self.product.id,
+                    "location_id": self.location.id,
+                    "quantity": 1,
+                    "lot_id": lot.id,
+                }
+            )
+        picking_form = Form(
+            self.env["stock.picking"]
+            .with_user(self.user)
+            .with_context(default_picking_type_id=self.picking_type.id)
+        )
+        picking_form.partner_id = self.partner1
+        for _ in lots:
+            with picking_form.move_ids_without_package.new() as move_form:
+                move_form.product_id = self.product
+                move_form.product_uom_qty = 1
+        picking = picking_form.save()
+        picking.action_confirm()
+        for move, lot in zip(picking.move_ids, lots):
+            move.move_line_ids.unlink()
+            self.env["stock.move.line"].create(
+                {
+                    "move_id": move.id,
+                    "product_id": self.product.id,
+                    "qty_done": 1,
+                    "location_id": self.location.id,
+                    "location_dest_id": self.location_dest.id,
+                    "lot_id": lot.id,
+                }
+            )
+        self.product.qc_triggers = [
+            (0, 0, {"trigger": self.trigger.id, "test": self.test.id})
+        ]
+        picking._action_done()
+        self.assertEqual(picking.created_inspections, 2)
+        self.assertEqual(
+            set(picking.qc_inspections_ids.mapped("lot_id").ids),
+            set(lots.ids),
+        )
 
     def test_no_tracking_per_lot(self):
         self.trigger.per_lot = True
@@ -455,3 +511,38 @@ class TestQualityControlStockOca(TestQualityControlOcaBase):
         initial = picking.created_inspections
         picking._action_done()
         self.assertEqual(picking.created_inspections, initial)
+
+    def test_multiple_products_generate_multiple_inspections(self):
+        """Each product on a picking should create its own inspection."""
+        product_b = self.product.copy({"name": "Test product B"})
+        self.env["stock.quant"].create(
+            {
+                "product_id": product_b.id,
+                "location_id": self.location.id,
+                "quantity": 1,
+            }
+        )
+        product_b.qc_triggers = [
+            (0, 0, {"trigger": self.trigger.id, "test": self.test.id})
+        ]
+        self.product.qc_triggers = [
+            (0, 0, {"trigger": self.trigger.id, "test": self.test.id})
+        ]
+
+        picking_form = Form(
+            self.env["stock.picking"]
+            .with_user(self.user)
+            .with_context(default_picking_type_id=self.picking_type.id)
+        )
+        picking_form.partner_id = self.partner1
+        with picking_form.move_ids_without_package.new() as move_form:
+            move_form.product_id = self.product
+            move_form.product_uom_qty = 1
+        with picking_form.move_ids_without_package.new() as move_form:
+            move_form.product_id = product_b
+            move_form.product_uom_qty = 1
+        picking = picking_form.save()
+        picking.action_confirm()
+        picking._action_done()
+
+        self.assertEqual(picking.created_inspections, 2)

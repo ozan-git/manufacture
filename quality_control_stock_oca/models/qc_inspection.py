@@ -107,17 +107,28 @@ class QcInspection(models.Model):
             and object_ref._name == "stock.move"
             and object_ref.product_id.tracking in ("serial", "lot")
         ):
-            product = object_ref.product_id
-            picking = object_ref.picking_id
+            move = object_ref
+            product = move.product_id
+            picking = move.picking_id
+            company = picking.company_id or self.env.company
             groups = {}
-            for ml in picking.move_line_ids:
+            for ml in move.move_line_ids:
                 if ml.product_id != product:
                     continue
+                lot = ml.lot_id
+                if not lot and getattr(ml, "lot_name", False):
+                    lot = self.env["stock.lot"].search(
+                        [
+                            ("name", "=", ml.lot_name),
+                            ("product_id", "=", product.id),
+                            ("company_id", "=", company.id),
+                        ],
+                        limit=1,
+                    )
                 done_qty = _done_qty(ml)
                 planned_qty = _planned_qty(ml)
-                if not ml.lot_id or not (done_qty or planned_qty):
+                if not lot or not (done_qty or planned_qty):
                     continue
-                lot = ml.lot_id
                 qty = done_qty or planned_qty
                 groups.setdefault(lot.id, {"lot": lot, "qty": 0})
                 groups[lot.id]["qty"] += qty
@@ -130,7 +141,7 @@ class QcInspection(models.Model):
                     trigger_line,
                 ):
                     continue
-                inspection = super()._make_inspection(picking, trigger_line)
+                inspection = super()._make_inspection(move, trigger_line)
                 test_rec = getattr(
                     trigger_line, "test_id", getattr(trigger_line, "test", False)
                 )
