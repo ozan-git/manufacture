@@ -12,12 +12,7 @@
         <field name="arch" type="xml">
             <list string="Preview" create="false" edit="false" delete="false">
                 <field name="row_index"/>
-                <field name="product_template_default_code"/>
-                <field name="test_code"/>
                 <field name="test_name"/>
-                <field name="trigger_name"/>
-                <field name="trigger_timing"/>
-                <field name="question_code"/>
                 <field name="question_name"/>
                 <field name="question_type"/>
                 <field name="qualitative_value_name"/>
@@ -39,12 +34,15 @@
                     <field name="data_file" filename="filename"/>
                     <field name="filename" invisible="1"/>
                     <field name="import_mode"/>
-                    <button
-                        name="%(quality_control_oca.action_qc_import_excel_download_template)d"
-                        type="action"
-                        string="Download template"
-                        class="btn-link"
-                    />
+                    <div class="oe_link_box">
+                        <a
+                            class="oe_link"
+                            href="/quality_control_oca/static/xlsx/qc_product_questions_template.xlsx"
+                            target="_blank"
+                        >
+                            Download template
+                        </a>
+                    </div>
                 </group>
                 <group string="Preview" modifiers="{'invisible': [('preview_line_ids', '=', False)]}">
                     <field
@@ -97,8 +95,11 @@
         <field name="binding_view_types">list</field>
         <field name="state">code</field>
         <field name="code"><![CDATA[
-action = env["ir.actions.actions"]._for_xml_id("quality_control_oca.action_qc_import_excel_wizard")
-action["context"] = dict(env.context)
+if env.context.get("params", {}).get("model") != "qc.test":
+    action = False
+else:
+    action = env["ir.actions.actions"]._for_xml_id("quality_control_oca.action_qc_import_excel_wizard")
+    action["context"] = dict(env.context)
         ]]></field>
     </record>
 </odoo>
