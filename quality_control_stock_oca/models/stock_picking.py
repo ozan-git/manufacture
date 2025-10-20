@@ -83,7 +83,7 @@ class StockPicking(models.Model):
                     )
                 )
             for trigger_line in _filter_trigger_lines(
-                trigger_lines, product=operation.product_id
+                trigger_lines, product=operation.product_id, record=operation
             ):
                 inspection_model._make_inspection(operation, trigger_line)
         return res
