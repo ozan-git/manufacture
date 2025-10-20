@@ -55,7 +55,6 @@ class QcTest(models.Model):
         default=lambda self: self.env.company,
     )
 
-    @api.model
     def action_open_export_wizard(self):
         """Open the export wizard without requiring XML-ID resolution at load."""
 
@@ -63,7 +62,9 @@ class QcTest(models.Model):
             "quality_control_oca.action_qc_export_excel_wizard"
         )
         context = dict(self.env.context)
-        active_ids = context.get("active_ids") or self.ids
+        active_ids = context.get("active_ids")
+        if not active_ids:
+            active_ids = self.ids
         if not isinstance(active_ids, list):
             active_ids = [active_ids]
         context.update(
