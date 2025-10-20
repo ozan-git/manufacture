@@ -8,13 +8,17 @@
 from odoo import fields, models
 
 
-def _filter_trigger_lines(trigger_lines):
+def _filter_trigger_lines(trigger_lines, product=None):
     filtered_trigger_lines = []
-    unique_tests = []
+    unique_keys = set()
     for trigger_line in trigger_lines:
-        if trigger_line.test not in unique_tests:
+        test = trigger_line.test
+        test_id = test.id if test else False
+        product_id = product.id if product else False
+        key = (test_id, product_id)
+        if key not in unique_keys:
             filtered_trigger_lines.append(trigger_line)
-            unique_tests.append(trigger_line.test)
+            unique_keys.add(key)
     return filtered_trigger_lines
 
 

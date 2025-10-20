@@ -455,3 +455,38 @@ class TestQualityControlStockOca(TestQualityControlOcaBase):
         initial = picking.created_inspections
         picking._action_done()
         self.assertEqual(picking.created_inspections, initial)
+
+    def test_multiple_products_generate_multiple_inspections(self):
+        """Each product on a picking should create its own inspection."""
+        product_b = self.product.copy({"name": "Test product B"})
+        self.env["stock.quant"].create(
+            {
+                "product_id": product_b.id,
+                "location_id": self.location.id,
+                "quantity": 1,
+            }
+        )
+        product_b.qc_triggers = [
+            (0, 0, {"trigger": self.trigger.id, "test": self.test.id})
+        ]
+        self.product.qc_triggers = [
+            (0, 0, {"trigger": self.trigger.id, "test": self.test.id})
+        ]
+
+        picking_form = Form(
+            self.env["stock.picking"]
+            .with_user(self.user)
+            .with_context(default_picking_type_id=self.picking_type.id)
+        )
+        picking_form.partner_id = self.partner1
+        with picking_form.move_ids_without_package.new() as move_form:
+            move_form.product_id = self.product
+            move_form.product_uom_qty = 1
+        with picking_form.move_ids_without_package.new() as move_form:
+            move_form.product_id = product_b
+            move_form.product_uom_qty = 1
+        picking = picking_form.save()
+        picking.action_confirm()
+        picking._action_done()
+
+        self.assertEqual(picking.created_inspections, 2)
