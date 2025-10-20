@@ -104,8 +104,20 @@ class QcImportExcelWizard(models.TransientModel):
             )
         summary = loader.import_rows(rows, self.import_mode)
         message = self._format_summary(summary)
-        self.env.user.notify_success(message=message)
-        return self._open_self_action()
+        action = self._open_self_action()
+        notifier = getattr(self.env.user, "notify_success", None)
+        if callable(notifier):
+            notifier(message=message)
+        else:
+            action.setdefault(
+                "effect",
+                {
+                    "fadeout": "slow",
+                    "message": message,
+                    "type": "rainbow_man",
+                },
+            )
+        return action
 
     def _get_product_code(self, data, raw):
         product = data.get("product_template")

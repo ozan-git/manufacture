@@ -12,48 +12,15 @@ except ImportError:  # pragma: no cover - handled in tests
 
 
 HEADERS = [
-    "trigger_product_template_line_ids/product_template/default_code",
-    "trigger_product_template_line_ids/product_template/name",
-    "code",
     "name",
-    "type",
-    "category/id",
-    "fill_correct_values",
-    "trigger_product_template_line_ids/trigger/name",
-    "trigger_product_template_line_ids/timing",
-    "test_lines/sequence",
-    "test_lines/code",
     "test_lines/name",
     "test_lines/type",
     "test_lines/notes",
-    "test_lines/uom_id/id",
-    "test_lines/min_value",
-    "test_lines/max_value",
     "test_lines/ql_values/name",
     "test_lines/ql_values/ok",
-]
-
-
-LEGACY_HEADERS = [
-    "product_template_default_code",
-    "product_template_name",
-    "test_code",
-    "test_name",
-    "test_type",
-    "test_category_xmlid",
-    "fill_correct_values",
-    "trigger_name",
-    "trigger_timing",
-    "question_sequence",
-    "question_code",
-    "question_name",
-    "question_type",
-    "question_notes",
-    "uom_xmlid",
-    "min_value",
-    "max_value",
-    "qualitative_value_name",
-    "qualitative_value_ok",
+    "test_lines/min_value",
+    "test_lines/max_value",
+    "test_lines/uom",
 ]
 
 
@@ -63,9 +30,7 @@ class TestQcExcelLoader(TransactionCase):
         if Workbook is None:
             self.skipTest("openpyxl is not available")
         self.loader = self.env["qc.excel.loader"]
-        self.product_template = self.env["product.template"].create(
-            {"name": "Sterilized Filter", "default_code": "FERT-001"}
-        )
+        self.unit_uom = self.env.ref("uom.product_uom_unit")
 
     def _build_workbook(self, rows, headers=HEADERS):
         workbook = Workbook()
@@ -77,58 +42,38 @@ class TestQcExcelLoader(TransactionCase):
         workbook.save(stream)
         return base64.b64encode(stream.getvalue())
 
-    def _quantitative_row(self, min_value=120, max_value=130, timing="after", fill=True):
+    def _quantitative_row(self, min_value=120, max_value=130, uom_name=None):
         return [
-            self.product_template.default_code,
-            self.product_template.name,
-            "STERIL_TEST",
-            "Sterility Check",
-            "related",
-            "quality_control_oca.qc_test_category_process",
-            fill,
-            "Manufacturing Order",
-            timing,
-            10,
-            "STER_TEMP",
-            "Sterilization Temperature",
+            "PCB Name",
+            "Operating Temperature",
             "quantitative",
             "Target range 120-130 C",
-            "uom.product_uom_celsius",
+            "",
+            "",
             min_value,
             max_value,
-            "",
-            "",
+            uom_name or self.unit_uom.name,
         ]
 
-    def _qualitative_row(self, value_name, ok, timing="after", fill=True):
+    def _qualitative_row(self, value_name, ok):
         return [
-            self.product_template.default_code,
-            self.product_template.name,
-            "STERIL_TEST",
-            "Sterility Check",
-            "related",
-            "quality_control_oca.qc_test_category_process",
-            fill,
-            "Manufacturing Order",
-            timing,
-            20,
-            "STER_COLOR",
-            "Filter Color",
+            "PCB Name",
+            "Visual Inspection",
             "qualitative",
-            "Visual inspection",
-            "",
-            "",
-            "",
+            "Inspect the PCB surface",
             value_name,
             "TRUE" if ok else "FALSE",
+            "",
+            "",
+            "",
         ]
 
     def test_import_and_update_excel(self):
         data_file = self._build_workbook(
             [
-                self._quantitative_row(fill=True),
-                self._qualitative_row("Clear", True, fill=True),
-                self._qualitative_row("Amber", False, fill=True),
+                self._quantitative_row(),
+                self._qualitative_row("OK", True),
+                self._qualitative_row("Needs Rework", False),
             ]
         )
         load_result = self.loader.load_from_binary(data_file, "import.xlsx")
@@ -137,42 +82,33 @@ class TestQcExcelLoader(TransactionCase):
 
         summary = self.loader.import_rows(load_result["rows"], "create_update")
         self.assertEqual(summary["tests_created"], 1)
-        self.assertEqual(summary["triggers_created"], 1)
+        self.assertEqual(summary["triggers_created"], 0)
         self.assertEqual(summary["questions_created"], 2)
         self.assertEqual(summary["values_created"], 2)
 
-        test = self.env["qc.test"].search([("code", "=", "STERIL_TEST")], limit=1)
+        test = self.env["qc.test"].search([("name", "=", "PCB Name")], limit=1)
         self.assertTrue(test)
-        self.assertEqual(test.name, "Sterility Check")
-        self.assertTrue(test.fill_correct_values)
+        self.assertEqual(test.code, "PCB_NAME")
+        self.assertFalse(test.fill_correct_values)
+        self.assertEqual(test.type, "generic")
 
-        quantitative = test.test_lines.filtered(lambda q: q.code == "STER_TEMP")
+        quantitative = test.test_lines.filtered(lambda q: q.name == "Operating Temperature")
         self.assertEqual(quantitative.type, "quantitative")
         self.assertEqual(quantitative.min_value, 120.0)
         self.assertEqual(quantitative.max_value, 130.0)
-        self.assertEqual(quantitative.uom_id, self.env.ref("uom.product_uom_celsius"))
+        self.assertEqual(quantitative.uom_id, self.unit_uom)
 
-        qualitative = test.test_lines.filtered(lambda q: q.code == "STER_COLOR")
+        qualitative = test.test_lines.filtered(lambda q: q.name == "Visual Inspection")
         self.assertEqual(len(qualitative.ql_values), 2)
         ok_values = qualitative.ql_values.filtered("ok")
-        self.assertEqual(ok_values.mapped("name"), ["Clear"])
-
-        trigger_line = self.env["qc.trigger.product_template_line"].search(
-            [
-                ("product_template", "=", self.product_template.id),
-                ("test", "=", test.id),
-            ],
-            limit=1,
-        )
-        self.assertTrue(trigger_line)
-        self.assertEqual(trigger_line.trigger.name, "Manufacturing Order")
-        self.assertEqual(trigger_line.timing, "after")
+        self.assertEqual(ok_values.mapped("name"), ["OK"])
+        self.assertIn("Needs Rework", qualitative.ql_values.mapped("name"))
 
         # Update workbook: adjust limits, change fill flag, keep only one qualitative value
         updated_file = self._build_workbook(
             [
-                self._quantitative_row(min_value=121, max_value=132, timing="before", fill=False),
-                self._qualitative_row("Clear", True, timing="before", fill=False),
+                self._quantitative_row(min_value=121, max_value=132),
+                self._qualitative_row("OK", True),
             ]
         )
         updated_result = self.loader.load_from_binary(updated_file, "import.xlsx")
@@ -183,50 +119,31 @@ class TestQcExcelLoader(TransactionCase):
         self.assertEqual(summary_update["tests_updated"], 1)
         self.assertEqual(summary_update["questions_updated"], 2)
         self.assertEqual(summary_update["values_deleted"], 1)
-        self.assertEqual(summary_update["triggers_updated"], 1)
+        self.assertEqual(summary_update["triggers_updated"], 0)
 
         test = self.env["qc.test"].browse(test.id)
-        self.assertFalse(test.fill_correct_values)
         quantitative = self.env["qc.test.question"].browse(quantitative.id)
         qualitative = self.env["qc.test.question"].browse(qualitative.id)
-        trigger_line = self.env["qc.trigger.product_template_line"].browse(
-            trigger_line.id
-        )
         self.assertEqual(quantitative.min_value, 121.0)
         self.assertEqual(quantitative.max_value, 132.0)
-        self.assertEqual(qualitative.ql_values.mapped("name"), ["Clear"])
-        self.assertEqual(trigger_line.timing, "before")
+        self.assertEqual(qualitative.ql_values.mapped("name"), ["OK"])
 
-        inspection = self.env["qc.inspection"].create(
-            {
-                "object_id": f"product.product,{self.product_template.product_variant_id.id}",
-            }
-        )
-        wizard = (
-            self.env["qc.inspection.set.test"].with_context(active_id=inspection.id)
-        ).create({"test": test.id})
-        wizard.action_create_test()
-        self.assertEqual(inspection.test, test)
-        self.assertEqual(len(inspection.inspection_lines), len(test.test_lines))
-
-        trigger_lines = self.env["qc.trigger.product_template_line"].search(
-            [
-                ("product_template", "=", self.product_template.id),
-                ("trigger", "=", trigger_line.trigger.id),
-            ]
-        )
-        self.assertEqual(len(trigger_lines), 1)
-
-    def test_import_legacy_headers(self):
+    def test_autoselect_ok_value_when_missing(self):
         data_file = self._build_workbook(
             [
-                self._quantitative_row(fill=True),
-                self._qualitative_row("Clear", True, fill=True),
-            ],
-            headers=LEGACY_HEADERS,
+                self._qualitative_row("Needs Rework", False),
+            ]
         )
-        load_result = self.loader.load_from_binary(data_file, "legacy.xlsx")
+        load_result = self.loader.load_from_binary(data_file, "missing_ok.xlsx")
         self.assertFalse(load_result["errors"])
-        self.assertEqual(load_result["headers"], HEADERS)
         summary = self.loader.import_rows(load_result["rows"], "create_update")
         self.assertEqual(summary["tests_created"], 1)
+
+        test = self.env["qc.test"].search([("name", "=", "PCB Name")], limit=1)
+        self.assertTrue(test)
+        question = test.test_lines.filtered(lambda q: q.name == "Visual Inspection")
+        self.assertTrue(question)
+        self.assertEqual(len(question.ql_values), 1)
+        value = question.ql_values[0]
+        self.assertEqual(value.name, "Needs Rework")
+        self.assertTrue(value.ok)

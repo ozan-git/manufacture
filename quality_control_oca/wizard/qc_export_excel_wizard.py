@@ -125,13 +125,7 @@ class QcExportExcelWizard(models.TransientModel):
 
     def _prepare_base_row(self, test, question):
         return {
-            "code": test.code or "",
             "name": test.name or "",
-            "type": test.type or "generic",
-            "category/id": self._get_external_id(test.category),
-            "fill_correct_values": bool(test.fill_correct_values),
-            "test_lines/sequence": question.sequence or 0,
-            "test_lines/code": question.code or "",
             "test_lines/name": question.name or "",
             "test_lines/type": question.type or "qualitative",
             "test_lines/notes": question.notes or "",
@@ -139,13 +133,15 @@ class QcExportExcelWizard(models.TransientModel):
 
     def _prepare_quantitative_payload(self, question):
         return {
-            "test_lines/uom_id/id": self._get_external_id(question.uom_id),
             "test_lines/min_value": (
                 question.min_value if question.min_value is not None else ""
             ),
             "test_lines/max_value": (
                 question.max_value if question.max_value is not None else ""
             ),
+            "test_lines/uom": question.uom_id.display_name
+            if question.uom_id
+            else "",
             "test_lines/ql_values/name": "",
             "test_lines/ql_values/ok": "",
         }
@@ -153,16 +149,16 @@ class QcExportExcelWizard(models.TransientModel):
     def _prepare_qualitative_payload(self, value):
         if not value:
             return {
-                "test_lines/uom_id/id": "",
                 "test_lines/min_value": "",
                 "test_lines/max_value": "",
+                "test_lines/uom": "",
                 "test_lines/ql_values/name": "",
                 "test_lines/ql_values/ok": False,
             }
         return {
-            "test_lines/uom_id/id": "",
             "test_lines/min_value": "",
             "test_lines/max_value": "",
+            "test_lines/uom": "",
             "test_lines/ql_values/name": value.name or "",
             "test_lines/ql_values/ok": bool(value.ok),
         }

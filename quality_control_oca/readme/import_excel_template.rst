@@ -8,12 +8,11 @@ Excel Template For QC Tests
 Purpose
 -------
 
-The Excel template helps you prepare quality control tests, their questions,
-possible qualitative answers, and product triggers in a single spreadsheet.
-Each row captures one question (and optionally one qualitative value) that will
-be imported into ``qc.test``, ``qc.test.question`` and
-``qc.test.question.value`` records and linked to product template triggers
-through ``qc.trigger.product_template_line``.
+The spreadsheet focuses on the details you can enter while designing a test:
+its name, the questions that should appear on inspections, and the possible
+answers. Technical fields such as internal codes, triggers, or categories are
+now handled automatically by the importer so that you only have to maintain the
+content that matters for the shop floor.
 
 Downloading The Template
 ------------------------
@@ -28,7 +27,8 @@ Using The Template
 There are two supported ways to load data prepared with this workbook:
 
 #. In the Odoo UI, open *Quality Control → Tests* and use the *Import from
-   Excel* button (or the generic *Import* action). Both show a link to download
+   Excel* button. The same wizard is also available from *Actions ▸ Import
+   Tests from Excel* in the list view toolbar. Both entries show a link to download
    this template. The dedicated wizard validates the file, shows a preview, and
    applies the changes in create/update mode without extra mapping.
 #. From custom scripts, call ``env['qc.test'].import_from_excel('/path/to/file.xlsx')``.
@@ -53,90 +53,46 @@ Template Columns
 
 .. list-table:: QC Excel columns
    :header-rows: 1
-   :widths: 22 10 16 42 20
+   :widths: 22 10 20 38 20
 
    * - Column
      - Required
      - Accepted values
      - Description
      - Example
-   * - ``trigger_product_template_line_ids/product_template/default_code``
-     - Optional
-     - Text
-     - Internal reference of the product template used to bind the trigger.
-       Leave empty to keep the test generic.
-     - ``FERT-001``
-   * - ``trigger_product_template_line_ids/product_template/name``
-     - Optional
-     - Text
-     - Human-readable product template name; used for review only.
-     - ``Sterilized Filter``
-   * - ``code``
-     - Required
-     - Text (unique per test)
-     - Identifier used to create or update the related ``qc.test``.
-     - ``STERIL_TEST``
    * - ``name``
      - Required
      - Text
      - Display name of the quality test.
-     - ``Sterility Check``
-   * - ``type``
-     - Required
-     - ``generic`` | ``related``
-     - Determines whether the test is generic or linked to a specific model.
-     - ``related``
-   * - ``category/id``
-     - Optional
-     - Module XML-ID
-     - Reference to an existing ``qc.test.category`` record (``module.record``).
-     - ``quality_control_oca.qc_test_category_process``
-   * - ``fill_correct_values``
-     - Optional
-     - ``TRUE`` | ``FALSE``
-     - Pre-fill inspection lines with the "OK" values when the inspection is created.
-     - ``TRUE``
-   * - ``trigger_product_template_line_ids/trigger/name``
-     - Optional
-     - Text
-     - Name of the ``qc.trigger`` to use when creating the
-       ``qc.trigger.product_template_line``.
-     - ``Manufacturing Order``
-   * - ``trigger_product_template_line_ids/timing``
-     - Optional
-     - ``before`` | ``after`` | ``plan_ahead``
-     - Timing applied to the trigger line when the product template is filled.
-     - ``after``
-   * - ``test_lines/sequence``
-     - Required
-     - Integer
-     - Sequence used to order the questions within the test.
-     - ``10``
-   * - ``test_lines/code``
-     - Required
-     - Text (unique per test)
-     - Identifier to help detect and update existing questions.
-     - ``STER_TEMP``
+     - ``PCB Name``
    * - ``test_lines/name``
      - Required
      - Text
      - Label shown on the inspection line.
-     - ``Sterilization Temperature``
+     - ``Operating Temperature``
    * - ``test_lines/type``
-     - Required
+     - Optional
      - ``qualitative`` | ``quantitative``
-     - Defines whether the question expects a discrete value or a numeric range.
-     - ``quantitative``
+     - Defaults to ``qualitative`` when left empty. Use ``quantitative`` for
+       numeric checks.
+     - ``qualitative``
    * - ``test_lines/notes``
      - Optional
      - Text
      - Additional instructions displayed on the inspection line.
-     - ``Target range 120-130 C``
-   * - ``test_lines/uom_id/id``
+     - ``Inspect the PCB surface``
+   * - ``test_lines/ql_values/name``
      - Conditional
-     - Module XML-ID
-     - Unit of measure for quantitative questions. Leave empty for qualitative ones.
-     - ``uom.product_uom_celsius``
+     - Text
+     - Qualitative option created under the question. Create extra rows for
+       additional values.
+     - ``OK``
+   * - ``test_lines/ql_values/ok``
+     - Conditional
+     - ``TRUE`` | ``FALSE``
+     - Marks the qualitative option as acceptable. At least one value should be
+       ``TRUE`` whenever qualitative values are provided.
+     - ``TRUE``
    * - ``test_lines/min_value``
      - Conditional
      - Number
@@ -147,60 +103,53 @@ Template Columns
      - Number
      - Maximum accepted value for quantitative questions.
      - ``130``
-   * - ``test_lines/ql_values/name``
+   * - ``test_lines/uom``
      - Conditional
      - Text
-     - Qualitative option created under the question. Create extra rows for
-       additional values.
-     - ``Clear``
-   * - ``test_lines/ql_values/ok``
-     - Conditional
-     - ``TRUE`` | ``FALSE``
-     - Marks the qualitative option as acceptable. At least one value must be
-       TRUE when qualitative options are defined.
-     - ``TRUE``
+     - Unit of measure for quantitative questions. You can enter the display
+       name (e.g. ``Units``) or an XML-ID (e.g. ``uom.product_uom_unit``).
+     - ``Units``
 
 Example Dataset
 ---------------
 
-The template ships with a sample set of rows to illustrate quantitative and
-qualitative questions. You can keep them as a reference or delete them before
-importing real data.
+The template ships with a minimal sample showing one qualitative question
+with two answers. Below is another example that mixes both question types.
 
 .. list-table:: Sample rows
    :header-rows: 1
-   :widths: 16 14 12 18 10 18 10 16
+   :widths: 20 20 12 18 14 12 10 10
 
-   * - Test code
-     - Question code
-     - Question type
-     - Qualitative value
+   * - Test name
+     - Question
+     - Type
+     - Notes
+     - Answer
      - OK?
-     - UoM
      - Min
      - Max
-   * - ``STERIL_TEST``
-     - ``STER_TEMP``
+   * - ``PCB Name``
+     - ``Operating Temperature``
      - ``quantitative``
+     - ``Target range 120-130 C``
      - ``-``
      - ``-``
-     - ``uom.product_uom_celsius``
      - ``120``
      - ``130``
-   * - ``STERIL_TEST``
-     - ``STER_COLOR``
+   * - ``PCB Name``
+     - ``Visual Inspection``
      - ``qualitative``
-     - ``Clear``
+     - ``Inspect the PCB surface``
+     - ``OK``
      - ``TRUE``
      - ``-``
      - ``-``
-     - ``-``
-   * - ``STERIL_TEST``
-     - ``STER_COLOR``
+   * - ``PCB Name``
+     - ``Visual Inspection``
      - ``qualitative``
-     - ``Amber``
+     - ``Inspect the PCB surface``
+     - ``Needs Rework``
      - ``FALSE``
-     - ``-``
      - ``-``
      - ``-``
 
@@ -208,13 +157,14 @@ Filling Checklist
 -----------------
 
 #. Download the template and make a copy for your project.
-#. Replace the sample rows with your product and test data. Reuse the same
-   ``code`` and ``test_lines/code`` values when you want to update existing
-   records.
-#. For qualitative questions, create one row per answer value and mark the
-   acceptable option with ``TRUE``.
-#. Leave product columns empty for tests that should stay generic and manually
-   assign them later.
+#. Fill in the ``name`` column for the test and add one row per question.
+#. Leave ``test_lines/type`` empty for qualitative questions. Use
+   ``quantitative`` when you also provide ``min_value``/``max_value``.
+#. Add an extra row for every possible qualitative answer and tick ``TRUE`` in
+   ``test_lines/ql_values/ok`` for the acceptable choice. If you forget to mark
+   one, the importer will automatically treat the first option as the OK value.
+#. For quantitative checks, provide ``test_lines/uom`` with the unit name as it
+   appears in Odoo (or an XML-ID) together with the min/max values.
 #. Save the file as ``.xlsx`` without changing the header names before running
    the import wizard.
 

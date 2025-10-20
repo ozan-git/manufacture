@@ -2,6 +2,7 @@
 
 import base64
 import io
+import re
 from collections import OrderedDict
 
 from odoo import _, models
@@ -36,6 +37,7 @@ class QcExcelLoader(models.AbstractModel):
         "question_type": "test_lines/type",
         "question_notes": "test_lines/notes",
         "uom_xmlid": "test_lines/uom_id/id",
+        "test_lines/uom": "test_lines/uom_id/id",
         "min_value": "test_lines/min_value",
         "max_value": "test_lines/max_value",
         "qualitative_value_name": "test_lines/ql_values/name",
@@ -43,13 +45,8 @@ class QcExcelLoader(models.AbstractModel):
     }
 
     _MANDATORY_FIELDS = {
-        "code",
         "name",
-        "type",
-        "test_lines/sequence",
-        "test_lines/code",
         "test_lines/name",
-        "test_lines/type",
     }
 
     def load_from_binary(self, data_file, filename=None):
@@ -148,8 +145,10 @@ class QcExcelLoader(models.AbstractModel):
                         "missing_field",
                     )
                 )
-        test_type = (raw_row.get("type") or "").lower()
-        if test_type and test_type not in self._VALID_TEST_TYPES:
+        test_type = (raw_row.get("type") or "").strip().lower()
+        if not test_type:
+            test_type = "generic"
+        elif test_type not in self._VALID_TEST_TYPES:
             errors.append(
                 self._error(
                     row_index,
@@ -159,7 +158,7 @@ class QcExcelLoader(models.AbstractModel):
                     "invalid_test_type",
                 )
             )
-        question_type = (raw_row.get("test_lines/type") or "").lower()
+        question_type = (raw_row.get("test_lines/type") or "").strip().lower()
         if question_type and question_type not in self._VALID_QUESTION_TYPES:
             errors.append(
                 self._error(
@@ -184,9 +183,14 @@ class QcExcelLoader(models.AbstractModel):
                 )
             )
 
-        normalized["test_code"] = (raw_row.get("code") or "").strip()
         normalized["test_name"] = (raw_row.get("name") or "").strip()
+        test_code = (raw_row.get("code") or "").strip()
+        if not test_code:
+            test_code = self._generate_test_code(normalized["test_name"])
+        normalized["test_code"] = test_code
         normalized["test_type"] = test_type or "generic"
+        if not normalized["test_type"]:
+            normalized["test_type"] = "generic"
         normalized["fill_correct_values"] = self._to_bool(
             raw_row.get("fill_correct_values")
         )
@@ -194,22 +198,18 @@ class QcExcelLoader(models.AbstractModel):
             raw_row.get("trigger_product_template_line_ids/trigger/name") or ""
         ).strip()
         normalized["trigger_timing"] = trigger_timing or "after"
-        if normalized["product_template"] and not normalized["trigger_name"]:
-            warnings.append(
-                self._warning(
-                    row_index,
-                    "trigger_product_template_line_ids/trigger/name",
-                    _("No trigger name provided; a default value will be used."),
-                    "missing_trigger_name",
-                )
-            )
-        normalized["question_code"] = (
-            raw_row.get("test_lines/code") or ""
-        ).strip()
         normalized["question_name"] = (
             raw_row.get("test_lines/name") or ""
         ).strip()
+        question_code = (raw_row.get("test_lines/code") or "").strip()
+        if not question_code:
+            question_code = self._generate_question_code(
+                normalized["test_code"], normalized["question_name"]
+            )
+        normalized["question_code"] = question_code
         normalized["question_type"] = question_type or "qualitative"
+        if not normalized["question_type"]:
+            normalized["question_type"] = "qualitative"
         normalized["question_sequence"] = self._to_int(
             raw_row.get("test_lines/sequence"),
             row_index,
@@ -260,6 +260,15 @@ class QcExcelLoader(models.AbstractModel):
         normalized["product_template"] = self._resolve_product(
             product_code, row_index, errors
         )
+        if normalized["product_template"] and not normalized["trigger_name"]:
+            warnings.append(
+                self._warning(
+                    row_index,
+                    "trigger_product_template_line_ids/trigger/name",
+                    _("No trigger name provided; a default value will be used."),
+                    "missing_trigger_name",
+                )
+            )
         if normalized["test_type"] == "related" and not normalized["product_template"]:
             errors.append(
                 self._error(
@@ -278,9 +287,9 @@ class QcExcelLoader(models.AbstractModel):
             ).strip()
         )
 
-        uom_xmlid = raw_row.get("test_lines/uom_id/id")
-        normalized["uom_id"] = self._resolve_xmlid(
-            uom_xmlid, row_index, "test_lines/uom_id/id", errors
+        uom_value = raw_row.get("test_lines/uom_id/id")
+        normalized["uom_id"] = self._resolve_uom(
+            uom_value, row_index, "test_lines/uom", errors
         )
 
         normalized["min_value"] = self._to_float(
@@ -319,7 +328,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row_index,
-                        "test_lines/uom_id/id",
+                        "test_lines/uom",
                         _("must be provided for quantitative questions."),
                         "missing_uom",
                     )
@@ -530,7 +539,7 @@ class QcExcelLoader(models.AbstractModel):
                 errors.append(
                     self._error(
                         row["row_index"],
-                        "test_lines/uom_id/id",
+                        "test_lines/uom",
                         _(
                             "conflicts with previous rows for the same question."
                         ),
@@ -588,11 +597,16 @@ class QcExcelLoader(models.AbstractModel):
                         },
                     )
         for bucket in grouped.values():
+            next_sequence = 10
+            for question in bucket["questions"].values():
+                if question["question_sequence"] is None:
+                    question["question_sequence"] = next_sequence
+                    next_sequence += 10
+        for bucket in grouped.values():
             for question_code, question in bucket["questions"].items():
-                if (
-                    question["question_type"] == "qualitative"
-                    and not question["qualitative_values"]
-                ):
+                if question["question_type"] != "qualitative":
+                    continue
+                if not question["qualitative_values"]:
                     errors.append(
                         self._error(
                             0,
@@ -603,20 +617,10 @@ class QcExcelLoader(models.AbstractModel):
                             "qualitative_values_missing",
                         )
                     )
-                if (
-                    question["question_type"] == "qualitative"
-                    and not any(val["ok"] for val in question["qualitative_values"].values())
-                ):
-                    errors.append(
-                        self._error(
-                            0,
-                            f"question:{question_code}",
-                            _(
-                                "qualitative questions must mark at least one value as OK."
-                            ),
-                            "qualitative_ok_missing",
-                        )
-                    )
+                    continue
+                if not any(val["ok"] for val in question["qualitative_values"].values()):
+                    first_key = next(iter(question["qualitative_values"]))
+                    question["qualitative_values"][first_key]["ok"] = True
         return grouped, errors
 
     def import_rows(self, rows, import_mode, allowed_status=None):
@@ -811,8 +815,9 @@ class QcExcelLoader(models.AbstractModel):
                 counts["values_updated"] += 1
                 processed_ids.add(existing.id)
             else:
-                Value.create(vals)
+                new_value = Value.create(vals)
                 counts["values_created"] += 1
+                processed_ids.add(new_value.id)
         to_remove = question.ql_values.filtered(lambda v: v.id not in processed_ids)
         counts["values_deleted"] += len(to_remove)
         to_remove.unlink()
@@ -975,6 +980,54 @@ class QcExcelLoader(models.AbstractModel):
             )
             return None
         return product
+
+    def _slugify_code(self, value):
+        if not value:
+            return ""
+        slug = re.sub(r"[^0-9A-Za-z]+", "_", value)
+        return slug.strip("_").upper()[:64]
+
+    def _generate_test_code(self, test_name):
+        return self._slugify_code(test_name)
+
+    def _generate_question_code(self, test_code, question_name):
+        question_slug = self._slugify_code(question_name)
+        if not question_slug:
+            return ""
+        if test_code:
+            candidate = f"{test_code}_{question_slug}"
+            return candidate.strip("_")[:64]
+        return question_slug[:64]
+
+    def _resolve_uom(self, value, row_index, column, errors):
+        if value in (None, ""):
+            return None
+        if isinstance(value, str):
+            candidate = value.strip()
+        else:
+            candidate = str(value).strip()
+        if not candidate:
+            return None
+        if "." in candidate:
+            record = self._resolve_xmlid(candidate, row_index, column, errors)
+            if record:
+                return record
+            return None
+        Uom = self.env["uom.uom"]
+        uom = Uom.search([("name", "=", candidate)], limit=1)
+        if not uom:
+            uom = Uom.search([("display_name", "=", candidate)], limit=1)
+        if not uom:
+            errors.append(
+                self._error(
+                    row_index,
+                    column,
+                    _("Unit of measure '%s' not found.") % candidate,
+                    "unknown_uom",
+                )
+            )
+            return None
+        return uom
 
     def _get_available_lang_codes(self):
         if not hasattr(self, "_available_lang_codes"):

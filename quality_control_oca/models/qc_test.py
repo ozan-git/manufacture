@@ -78,6 +78,17 @@ class QcTest(models.Model):
         return action
 
     @api.model
+    def action_open_import_wizard(self):
+        """Open the custom Excel import wizard."""
+
+        action = self.env["ir.actions.actions"]._for_xml_id(
+            "quality_control_oca.action_qc_import_excel_wizard"
+        )
+        action_context = dict(self.env.context)
+        action["context"] = action_context
+        return action
+
+    @api.model
     def get_import_templates(self):
         """Expose the Excel template both in the wizard and generic importer."""
 
@@ -115,6 +126,16 @@ class QcTestQuestion(models.Model):
     _description = "Quality control question"
     _order = "sequence, id"
 
+    def create(self, vals_list):
+        questions = super().create(vals_list)
+        questions._ensure_ok_answer()
+        return questions
+
+    def write(self, vals):
+        res = super().write(vals)
+        self._ensure_ok_answer()
+        return res
+
     @api.constrains("ql_values")
     def _check_valid_answers(self):
         for tc in self:
@@ -123,13 +144,24 @@ class QcTestQuestion(models.Model):
                 and tc.ql_values
                 and not tc.ql_values.filtered("ok")
             ):
+                answers = ", ".join(tc.ql_values.mapped("name")) or "-"
                 raise exceptions.ValidationError(
                     self.env._(
-                        "Question '%s' is not valid: "
-                        "you have to mark at least one value as OK."
+                        "Question '%(question)s' is not valid: you have to mark at least one value as OK. "
+                        "Tick the field \"Qualitative values / Correct answer?\" (Excel column "
+                        "\"test_lines/ql_values/ok\") for one of the answers. Current answers: %(answers)s"
                     )
-                    % tc.display_name
+                    % {"question": tc.display_name, "answers": answers}
                 )
+
+    def _ensure_ok_answer(self):
+        for question in self:
+            if (
+                question.type == "qualitative"
+                and question.ql_values
+                and not question.ql_values.filtered("ok")
+            ):
+                question.ql_values[0].write({"ok": True})
 
     @api.constrains("min_value", "max_value")
     def _check_valid_range(self):
