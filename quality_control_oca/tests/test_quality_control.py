@@ -8,7 +8,7 @@
 import base64
 import io
 
-from odoo import exceptions
+from odoo import _, exceptions
 from odoo.tests import new_test_user
 
 from odoo.addons.base.models.ir_model import MODULE_UNINSTALL_FLAG
@@ -358,6 +358,80 @@ class TestQualityControlOca(TestQualityControlOcaBase):
         )
         self.assertFalse(export_row[header_index["test_lines/ql_values/name"]])
         self.assertFalse(export_row[header_index["test_lines/ql_values/ok"]])
+
+    def test_export_summary_sheet_contains_details(self):
+        if openpyxl is None:
+            self.skipTest("openpyxl not installed")
+
+        wizard = (
+            self.env["qc.export.excel.wizard"].with_context(active_ids=[self.test.id]).create({})
+        )
+        wizard.action_export()
+        workbook = openpyxl.load_workbook(io.BytesIO(base64.b64decode(wizard.data_file)))
+        try:
+            self.assertIn(_("Questions Summary"), workbook.sheetnames)
+            sheet = workbook[_("Questions Summary")]
+            headers = [
+                cell or ""
+                for cell in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
+            ]
+            expected_headers = [
+                _("Test Code"),
+                _("Test Name"),
+                _("Test Category"),
+                _("Test Type"),
+                _("Reference Object"),
+                _("Fill Correct Values"),
+                _("Product Default Code"),
+                _("Product Name"),
+                _("Trigger"),
+                _("Trigger Timing"),
+                _("Question Sequence"),
+                _("Question Code"),
+                _("Question Name"),
+                _("Question Type"),
+                _("Question Notes"),
+                _("Question Unit of Measure"),
+                _("Question Min Value"),
+                _("Question Max Value"),
+                _("Option"),
+                _("Option Is Correct"),
+                _("Row Summary"),
+            ]
+            self.assertEqual(headers, expected_headers)
+            rows = [
+                list(row)
+                for row in sheet.iter_rows(min_row=2, values_only=True)
+                if any(row)
+            ]
+        finally:
+            workbook.close()
+
+        self.assertTrue(rows, "The summary sheet should include at least one data row.")
+        header_index = {name: index for index, name in enumerate(headers)}
+        test_names = {row[header_index[_("Test Name")]] for row in rows if row}
+        self.assertIn(self.test.name, test_names)
+
+        question_names = {
+            row[header_index[_("Question Name")]]
+            for row in rows
+            if row[header_index[_("Question Name")]]
+        }
+        self.assertTrue(question_names, "Questions should be exported on the summary sheet.")
+
+        qualitative_options = {
+            row[header_index[_("Option")]]
+            for row in rows
+            if row[header_index[_("Option")]]
+        }
+        if qualitative_options:
+            self.assertIn(self.val_ok.name, qualitative_options)
+            summary_values = {
+                row[header_index[_("Option Is Correct")]]
+                for row in rows
+                if row[header_index[_("Option")]] == self.val_ok.name
+            }
+            self.assertIn(_("Yes"), summary_values)
 
     def test_categories(self):
         category1 = self.category_model.create({"name": "Category ONE"})
