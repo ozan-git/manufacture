@@ -21,6 +21,9 @@
                 <field name="uom_xmlid"/>
                 <field name="min_value"/>
                 <field name="max_value"/>
+                <field name="trigger_name"/>
+                <field name="trigger_timing"/>
+                <field name="trigger_per_lot" widget="boolean_toggle"/>
             </list>
         </field>
     </record>

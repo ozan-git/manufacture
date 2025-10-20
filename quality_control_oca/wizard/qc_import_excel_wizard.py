@@ -73,6 +73,7 @@ class QcImportExcelWizard(models.TransientModel):
                     "test_name": data.get("test_name"),
                     "trigger_name": data.get("trigger_name"),
                     "trigger_timing": data.get("trigger_timing"),
+                    "trigger_per_lot": bool(data.get("trigger_per_lot")),
                     "question_code": data.get("question_code"),
                     "question_name": data.get("question_name"),
                     "question_type": data.get("question_type"),
@@ -166,6 +167,7 @@ class QcImportExcelPreview(models.TransientModel):
     test_name = fields.Char(string="Test Name")
     trigger_name = fields.Char(string="Trigger")
     trigger_timing = fields.Char(string="Timing")
+    trigger_per_lot = fields.Boolean(string="Per Lot/Serial")
     question_code = fields.Char(string="Question Code")
     question_name = fields.Char(string="Question Name")
     question_type = fields.Char(string="Question Type")

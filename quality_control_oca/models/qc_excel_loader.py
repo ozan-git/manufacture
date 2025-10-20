@@ -31,6 +31,8 @@ class QcExcelLoader(models.AbstractModel):
         "test_category_xmlid": "category/id",
         "trigger_name": "trigger_product_template_line_ids/trigger/name",
         "trigger_timing": "trigger_product_template_line_ids/timing",
+        "trigger_per_lot": "trigger_product_template_line_ids/trigger/per_lot",
+        "trigger_product_template_line_ids/per_lot": "trigger_product_template_line_ids/trigger/per_lot",
         "question_sequence": "test_lines/sequence",
         "question_code": "test_lines/code",
         "question_name": "test_lines/name",
@@ -198,6 +200,9 @@ class QcExcelLoader(models.AbstractModel):
             raw_row.get("trigger_product_template_line_ids/trigger/name") or ""
         ).strip()
         normalized["trigger_timing"] = trigger_timing or "after"
+        normalized["trigger_per_lot"] = self._to_bool_or_none(
+            raw_row.get("trigger_product_template_line_ids/trigger/per_lot")
+        )
         normalized["question_name"] = (
             raw_row.get("test_lines/name") or ""
         ).strip()
@@ -447,6 +452,7 @@ class QcExcelLoader(models.AbstractModel):
                         "product": product,
                         "trigger_name": data["trigger_name"],
                         "trigger_timing": data["trigger_timing"],
+                        "trigger_per_lot": data["trigger_per_lot"],
                     },
                 )
                 if (
@@ -483,6 +489,25 @@ class QcExcelLoader(models.AbstractModel):
                     product_bucket["trigger_name"] = data["trigger_name"]
                 if not product_bucket["trigger_timing"]:
                     product_bucket["trigger_timing"] = data["trigger_timing"]
+                existing_per_lot = product_bucket.get("trigger_per_lot")
+                incoming_per_lot = data["trigger_per_lot"]
+                if (
+                    existing_per_lot is not None
+                    and incoming_per_lot is not None
+                    and existing_per_lot != incoming_per_lot
+                ):
+                    errors.append(
+                        self._error(
+                            row["row_index"],
+                            "trigger_product_template_line_ids/trigger/per_lot",
+                            _(
+                                "conflicts with another row referencing the same product."
+                            ),
+                            "trigger_per_lot_conflict",
+                        )
+                    )
+                elif existing_per_lot is None and incoming_per_lot is not None:
+                    product_bucket["trigger_per_lot"] = incoming_per_lot
 
             question_key = data["question_code"] or data["question_name"]
             question_bucket = bucket["questions"].setdefault(
@@ -833,8 +858,14 @@ class QcExcelLoader(models.AbstractModel):
                 "Imported QC trigger"
             )
             trigger = Trigger.search([("name", "=", trigger_name)], limit=1)
+            incoming_per_lot = payload.get("trigger_per_lot")
             if not trigger:
-                trigger = Trigger.create({"name": trigger_name})
+                vals = {"name": trigger_name}
+                if incoming_per_lot is not None:
+                    vals["per_lot"] = incoming_per_lot
+                trigger = Trigger.create(vals)
+            elif incoming_per_lot is not None and trigger.per_lot != incoming_per_lot:
+                trigger.write({"per_lot": incoming_per_lot})
             trigger_line = TriggerLine.search(
                 [
                     ("product_template", "=", payload["product"].id),
@@ -903,6 +934,11 @@ class QcExcelLoader(models.AbstractModel):
         if isinstance(value, str):
             return value.strip()
         return value
+
+    def _to_bool_or_none(self, value):
+        if value in (None, ""):
+            return None
+        return self._to_bool(value)
 
     def _to_bool(self, value):
         if isinstance(value, bool):

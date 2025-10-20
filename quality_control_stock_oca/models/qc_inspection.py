@@ -102,12 +102,19 @@ class QcInspection(models.Model):
 
     def _make_inspection(self, object_ref, trigger_line):
         trigger = trigger_line.trigger
+        product = object_ref.product_id if object_ref._name == "stock.move" else False
+        per_lot = trigger.per_lot
         if (
-            trigger.per_lot
+            object_ref._name == "stock.move"
+            and product
+            and product.tracking == "serial"
+        ):
+            per_lot = True
+        if (
+            per_lot
             and object_ref._name == "stock.move"
             and object_ref.product_id.tracking in ("serial", "lot")
         ):
-            product = object_ref.product_id
             picking = object_ref.picking_id
             groups = {}
             for ml in picking.move_line_ids:
@@ -119,6 +126,8 @@ class QcInspection(models.Model):
                     continue
                 lot = ml.lot_id
                 qty = done_qty or planned_qty
+                if product.tracking == "serial":
+                    qty = 1.0
                 groups.setdefault(lot.id, {"lot": lot, "qty": 0})
                 groups[lot.id]["qty"] += qty
             inspections = self.browse()
